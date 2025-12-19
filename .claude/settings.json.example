@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "gemini": {
+      "command": "node",
+      "args": ["/REPLACE/WITH/YOUR/PATH/gemini-cli/features/mcp-bridge/dist/index.js"],
+      "env": {
+        "A2A_SERVER_URL": "http://localhost:41242"
+      }
+    }
+  }
+}

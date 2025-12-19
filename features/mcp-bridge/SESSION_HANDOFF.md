@@ -77,23 +77,30 @@ npm run build  # NEEDS TO BE RUN
 
 ### 2. Start A2A Server
 ```bash
-cd packages/a2a-server
-npm run start
+# From project root - use fixed port and OAuth auth
+CODER_AGENT_PORT=41242 USE_CCPA=true npm run start -w packages/a2a-server
 # Runs on http://localhost:41242
 ```
 
+**Note:** You must first login via `npm run cli` to create OAuth credentials.
+
 ### 3. Configure Claude Code
 
-Add to `~/.claude/settings.json`:
+Copy and customize the example settings file:
+```bash
+cp .claude/settings.json.example ~/.claude/settings.json
+# Edit and replace /REPLACE/WITH/YOUR/PATH with your actual path
+```
+
+Or manually add to `~/.claude/settings.json`:
 ```json
 {
   "mcpServers": {
     "gemini": {
       "command": "node",
-      "args": ["/home/matlod1/Documents/AI/modcli/gemini-cli/features/mcp-bridge/dist/index.js"],
+      "args": ["/YOUR/PATH/TO/gemini-cli/features/mcp-bridge/dist/index.js"],
       "env": {
-        "A2A_SERVER_URL": "http://localhost:41242",
-        "GEMINI_WORKSPACE": "/path/to/project"
+        "A2A_SERVER_URL": "http://localhost:41242"
       }
     }
   }
