@@ -114,10 +114,14 @@ Add to `~/.claude/settings.json`:
 |------|-----|
 | `ARCHITECTURE.md` | Full design doc with A2A protocol details |
 | `features/mcp-bridge/README.md` | Bridge usage docs |
+| `features/mcp-bridge/AUTHENTICATION.md` | Auth options (OAuth vs API key) |
+| `features/mcp-bridge/MODEL_CONFIGURATION.md` | Model selection analysis & A2A fork plan |
 | `packages/a2a-server/src/types.ts` | A2A event types |
+| `packages/a2a-server/src/config/config.ts` | Auth selection logic (lines 102-125) |
 | `packages/a2a-server/src/http/app.ts` | HTTP endpoints |
 | `packages/a2a-server/src/agent/task.ts` | Tool confirmation logic |
-| `packages/a2a-server/src/http/app.test.ts` | E2E test examples |
+| `packages/core/src/code_assist/oauth2.ts` | OAuth flow, credential caching |
+| `packages/core/src/config/models.ts` | Model constants (Flash, Pro, etc.) |
 
 ## A2A Protocol Quick Reference
 
@@ -159,11 +163,25 @@ POST / with message → SSE stream
 1. ~~Build not yet verified after final changes~~ ✅ Build works
 2. Real streaming not implemented (buffered SSE parsing)
 3. No integration tests yet
-4. May need Gemini API key setup in A2A server
+4. ~~May need Gemini API key setup in A2A server~~ ✅ See [AUTHENTICATION.md](./AUTHENTICATION.md)
 5. **Model Selection Gap:** A2A server doesn't support per-request model selection
    - See [MODEL_CONFIGURATION.md](./MODEL_CONFIGURATION.md) for full analysis
    - Currently both delegate_task and consult use same model (determined by settings)
    - Need to fork A2A server to add `model` to AgentSettings
+
+## Authentication
+
+**Use CLI account auth (not API key):**
+
+```bash
+# 1. Login via CLI first (one-time, creates ~/.gemini/oauth_creds.json)
+npm run cli  # Complete browser OAuth flow
+
+# 2. Start A2A server with USE_CCPA
+USE_CCPA=true npm run start -w packages/a2a-server
+```
+
+See [AUTHENTICATION.md](./AUTHENTICATION.md) for full details on auth options.
 
 ## Environment
 
