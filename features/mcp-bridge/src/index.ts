@@ -45,107 +45,173 @@ const tools: Tool[] = [
   // Core Task Tools
   // ==========================================================================
   {
-    name: 'gemini_task',
-    description: `Send a task to Gemini and get the response. Use this to delegate work to Gemini as an "intern".
+    name: 'gemini_delegate_task_to_assistant',
+    description: `Delegate a task to Gemini AI to work on asynchronously. Use Gemini as your "intern" or assistant for grunt work.
 
-Gemini will work on the task and may request tool confirmations (file edits, shell commands, etc).
-Returns the response including any pending decisions that need your input.
+PURPOSE: Offload time-consuming or repetitive tasks to Gemini while you continue other work. Gemini (powered by Gemini 3.0 Flash) excels at:
+- Searching and analyzing large codebases ("Find all files related to authentication")
+- Generating boilerplate or test data ("Create 20 test fixtures for the User model")
+- Bulk operations ("Add TypeScript types to all functions in src/utils/")
+- Initial code reviews ("Look for obvious bugs in these files")
+- Research tasks ("Summarize how error handling works in this project")
 
-Examples:
-- "Find all authentication-related files and summarize the patterns"
-- "Generate 10 test fixtures for the User model"
-- "Review this code for potential bugs"`,
+WORKFLOW:
+1. Call this tool with your task description
+2. Gemini works on it and may request approvals for file edits, shell commands, etc.
+3. If approvals are pending, use 'gemini_approve_or_deny_pending_action' to respond
+4. Check progress with 'gemini_check_task_progress_and_status' if needed
+5. Gemini returns results when complete
+
+WHEN TO USE vs gemini_quick_consultation_for_second_opinion:
+- Use THIS tool for tasks that require Gemini to DO something (search, edit, generate)
+- Use consultation tool for quick questions where you just want Gemini's OPINION
+
+Returns: Session ID, Gemini's response, and any pending tool approvals that need your decision.`,
     inputSchema: {
       type: 'object',
       properties: {
         task: {
           type: 'string',
-          description: 'The task or question for Gemini to work on',
+          description: 'Detailed description of what you want Gemini to do. Be specific about scope, files, and expected output format.',
         },
         workspace: {
           type: 'string',
-          description: 'Working directory for Gemini (defaults to GEMINI_WORKSPACE or cwd)',
+          description: 'Absolute path to the working directory for this task. Defaults to GEMINI_WORKSPACE env var or current directory.',
         },
         autoExecute: {
           type: 'boolean',
-          description: 'Auto-approve all tool calls (YOLO mode). Default: false',
+          description: 'If true, Gemini will automatically execute all tool calls without asking for approval (YOLO mode). Use with caution. Default: false',
         },
         sessionId: {
           type: 'string',
-          description: 'Session ID to continue a previous conversation',
+          description: 'Provide a previous session ID to continue an existing conversation with context preserved.',
         },
       },
       required: ['task'],
     },
   },
   {
-    name: 'gemini_respond',
-    description: `Respond to a pending tool confirmation from Gemini.
+    name: 'gemini_approve_or_deny_pending_action',
+    description: `Respond to a pending tool approval request from Gemini. Use this when Gemini is blocked waiting for your permission to execute an action.
 
-Use this when Gemini is waiting for approval to execute a tool.
+PURPOSE: Gemini asks for approval before executing potentially impactful operations like:
+- Writing or editing files
+- Running shell commands
+- Making API calls
+- Deleting or moving files
 
-Decisions:
-- approve: Execute this tool once
-- deny: Don't execute this tool
-- trust_always: Trust all future tool calls in this session
-- trust_tool: Trust this type of tool for the session
-- trust_server: Trust all tools from this MCP server
-- edit: Modify the file content before saving (for file edits only)`,
+WHEN TO USE: After calling 'gemini_delegate_task_to_assistant', if the response shows "PENDING DECISIONS" with a callId, you must use this tool to approve or deny before Gemini can continue.
+
+DECISION OPTIONS:
+- "approve" → Execute this specific action once, then ask again for future actions
+- "deny" → Do not execute this action, Gemini will try alternative approaches
+- "trust_always" → Trust ALL future tool calls in this session (use sparingly)
+- "trust_tool" → Trust all future calls to THIS TYPE of tool (e.g., all file reads)
+- "trust_server" → Trust all tools from the MCP server making this request
+- "edit" → For file edits only: modify the proposed content before saving (provide editedContent)
+
+TYPICAL FLOW:
+1. Gemini proposes: "I want to run 'grep -r auth src/'"
+2. You approve with decision="approve"
+3. Gemini executes and continues working
+4. Gemini proposes: "I want to edit src/auth.ts"
+5. You review and approve, or use "edit" to modify the changes first`,
     inputSchema: {
       type: 'object',
       properties: {
         sessionId: {
           type: 'string',
-          description: 'The session ID from the original task',
+          description: 'The session ID from the original gemini_delegate_task_to_assistant call',
         },
         callId: {
           type: 'string',
-          description: 'The tool call ID to respond to',
+          description: 'The specific tool call ID to respond to (from the PENDING DECISIONS section)',
         },
         decision: {
           type: 'string',
           enum: ['approve', 'deny', 'trust_always', 'trust_tool', 'trust_server', 'edit'],
-          description: 'Your decision for this tool call',
+          description: 'Your decision for this pending action',
         },
         editedContent: {
           type: 'string',
-          description: 'Modified file content (only for decision="edit")',
+          description: 'When decision is "edit": provide the modified file content you want saved instead of what Gemini proposed',
         },
       },
       required: ['sessionId', 'callId', 'decision'],
     },
   },
   {
-    name: 'gemini_status',
-    description: 'Get the status of a Gemini task/session including available tools and MCP servers.',
+    name: 'gemini_check_task_progress_and_status',
+    description: `Check the current status and progress of a Gemini task session.
+
+PURPOSE: Monitor what Gemini is doing, see available tools, and check if the task is still running, waiting for input, or completed.
+
+RETURNS:
+- Current task state (working, input-required, completed, failed)
+- Model being used (Flash or Pro)
+- List of tools available to Gemini in this session
+- Connected MCP servers and their status
+
+USE CASES:
+- Check if a long-running task is still working
+- See what tools Gemini has access to
+- Debug why a task might be stuck
+- Verify task completion before moving on`,
     inputSchema: {
       type: 'object',
       properties: {
         sessionId: {
           type: 'string',
-          description: 'The session ID to check',
+          description: 'The session ID to check status for',
         },
       },
       required: ['sessionId'],
     },
   },
   {
-    name: 'gemini_cancel',
-    description: 'Cancel a running Gemini task.',
+    name: 'gemini_cancel_running_task',
+    description: `Cancel and terminate a running Gemini task session.
+
+PURPOSE: Stop a Gemini task that is taking too long, going in the wrong direction, or no longer needed.
+
+EFFECTS:
+- Immediately stops the task
+- Cleans up the session
+- Any pending work is discarded
+- The session ID becomes invalid
+
+USE WHEN:
+- Task is taking too long and you want to try a different approach
+- You realize the task instructions were wrong
+- The task is stuck or producing errors
+- You no longer need the results`,
     inputSchema: {
       type: 'object',
       properties: {
         sessionId: {
           type: 'string',
-          description: 'The session ID to cancel',
+          description: 'The session ID of the task to cancel',
         },
       },
       required: ['sessionId'],
     },
   },
   {
-    name: 'gemini_list_sessions',
-    description: 'List all active Gemini sessions with their status.',
+    name: 'gemini_list_all_active_sessions',
+    description: `List all currently active Gemini task sessions with their status.
+
+PURPOSE: See all ongoing Gemini tasks, useful when managing multiple parallel delegations or recovering context after interruption.
+
+RETURNS for each session:
+- Session ID (use with other tools)
+- Current state (working, waiting, completed)
+- Model being used
+
+USE CASES:
+- Find a session ID you forgot
+- Check how many parallel tasks are running
+- Clean up old sessions
+- Resume work after context switch`,
     inputSchema: {
       type: 'object',
       properties: {},
@@ -156,26 +222,38 @@ Decisions:
   // Consultation Tool (Sync, for second opinions)
   // ==========================================================================
   {
-    name: 'gemini_consult',
-    description: `Quick consultation with Gemini for a second opinion.
+    name: 'gemini_quick_consultation_for_second_opinion',
+    description: `Get a quick second opinion or consultation from Gemini without starting a full task session.
 
-Use this for:
-- Plan review before implementation
-- Architecture decisions
-- Getting fresh perspective on complex problems
-- Code review
+PURPOSE: Use Gemini as a "senior peer" to review your work, validate approaches, or get fresh perspective. This is a synchronous call that returns immediately with Gemini's response.
 
-This runs in auto-execute mode for faster response.`,
+BEST FOR:
+- "Does this implementation plan look complete? What am I missing?"
+- "Review this code for potential bugs or edge cases"
+- "I'm choosing between approach A and B - what are the tradeoffs?"
+- "Is this the idiomatic way to do X in this codebase?"
+- "Sanity check: does this architecture make sense?"
+
+HOW IT DIFFERS FROM gemini_delegate_task_to_assistant:
+- Consultation is for OPINIONS and REVIEW (Gemini thinks and responds)
+- Task delegation is for WORK (Gemini searches, edits, generates)
+- Consultation runs in auto-execute mode (no approval prompts)
+- Consultation doesn't maintain session state
+
+TIPS:
+- Provide rich context in the 'context' field (code snippets, file contents, plans)
+- Ask specific questions rather than vague ones
+- Use for validation before committing to an approach`,
     inputSchema: {
       type: 'object',
       properties: {
         question: {
           type: 'string',
-          description: 'Your question or request for Gemini',
+          description: 'Your question or what you want Gemini to review. Be specific about what kind of feedback you want.',
         },
         context: {
           type: 'string',
-          description: 'Additional context (code, plans, etc)',
+          description: 'Supporting context: code snippets, implementation plans, file contents, error messages, etc. The more context, the better the consultation.',
         },
       },
       required: ['question'],
@@ -186,33 +264,64 @@ This runs in auto-execute mode for faster response.`,
   // CLI Command Tools (Gemini CLI Extensions)
   // ==========================================================================
   {
-    name: 'gemini_command',
-    description: `Execute a Gemini CLI command.
+    name: 'gemini_execute_cli_command',
+    description: `Execute a Gemini CLI built-in command for project management and configuration.
 
-Available commands:
-- init: Analyze the project and create a tailored GEMINI.md file
-- restore <checkpoint>: Restore to a previous checkpoint
-- restore list: List available checkpoints
-- extensions list: List installed extensions`,
+PURPOSE: Access Gemini CLI's project management features like initialization, checkpoints, and extensions.
+
+AVAILABLE COMMANDS:
+
+"init" - Analyze the current project and create a GEMINI.md file
+  - Scans project structure, dependencies, and patterns
+  - Creates tailored instructions for Gemini when working in this project
+  - Run once per project to improve Gemini's context
+
+"restore list" - List all available checkpoints
+  - Shows saved states you can restore to
+
+"restore <name>" - Restore project to a specific checkpoint
+  - Reverts files to a previously saved state
+  - Use args: ["checkpoint-name"] to specify which checkpoint
+
+"extensions list" - List installed Gemini CLI extensions
+  - Shows available plugins and their status
+
+EXAMPLES:
+- Initialize project: command="init"
+- List checkpoints: command="restore", args=["list"]
+- Restore checkpoint: command="restore", args=["before-refactor"]
+- List extensions: command="extensions", args=["list"]`,
     inputSchema: {
       type: 'object',
       properties: {
         command: {
           type: 'string',
-          description: 'The command to execute (e.g., "init", "restore list")',
+          description: 'The command name to execute: "init", "restore", or "extensions"',
         },
         args: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Arguments for the command',
+          description: 'Arguments for the command, e.g., ["list"] for "restore list" or ["checkpoint-name"] for restore',
         },
       },
       required: ['command'],
     },
   },
   {
-    name: 'gemini_list_commands',
-    description: 'List all available Gemini CLI commands.',
+    name: 'gemini_list_available_cli_commands',
+    description: `List all available Gemini CLI commands with their descriptions and arguments.
+
+PURPOSE: Discover what CLI commands are available in this Gemini installation.
+
+USE WHEN:
+- You want to see what project management features are available
+- You're unsure of the exact command name or syntax
+- You want to explore Gemini CLI's capabilities
+
+Returns a structured list of commands with:
+- Command name and description
+- Required and optional arguments
+- Subcommands if applicable`,
     inputSchema: {
       type: 'object',
       properties: {},
@@ -223,8 +332,25 @@ Available commands:
   // Agent Discovery
   // ==========================================================================
   {
-    name: 'gemini_info',
-    description: 'Get information about the Gemini agent including capabilities, skills, and version.',
+    name: 'gemini_get_agent_capabilities_and_version',
+    description: `Get detailed information about the Gemini agent's capabilities, version, and available skills.
+
+PURPOSE: Discover what this Gemini instance can do and verify connectivity to the A2A server.
+
+RETURNS:
+- Agent name and version
+- Provider information
+- Protocol version (A2A)
+- Capability flags (streaming, push notifications, etc.)
+- List of skills with descriptions
+
+USE CASES:
+- Verify the MCP bridge is connected to the A2A server
+- Check what version of Gemini is running
+- Discover available skills and capabilities
+- Debug connectivity issues (this is a good "ping" test)
+
+TIP: Call this first when setting up to verify everything is working.`,
     inputSchema: {
       type: 'object',
       properties: {},
@@ -285,7 +411,7 @@ function formatParsedEvents(parsed: ParsedEvents): string {
         sections.push(`    Message: ${tool.confirmationDetails.message}`);
       }
     }
-    sections.push('\nUse gemini_respond to approve or deny these tool calls.');
+    sections.push('\nUse gemini_approve_or_deny_pending_action to respond to these.');
   }
 
   // Citations
@@ -368,7 +494,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   try {
     // Health check for most operations
-    if (name !== 'gemini_info') {
+    if (name !== 'gemini_get_agent_capabilities_and_version') {
       const isHealthy = await a2aClient.healthCheck();
       if (!isHealthy) {
         return {
@@ -382,9 +508,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     switch (name) {
       // ======================================================================
-      // gemini_task
+      // gemini_delegate_task_to_assistant
       // ======================================================================
-      case 'gemini_task': {
+      case 'gemini_delegate_task_to_assistant': {
         const task = args?.task as string;
         const workspace = (args?.workspace as string) || DEFAULT_WORKSPACE;
         const autoExecute = (args?.autoExecute as boolean) || false;
@@ -417,9 +543,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       // ======================================================================
-      // gemini_respond
+      // gemini_approve_or_deny_pending_action
       // ======================================================================
-      case 'gemini_respond': {
+      case 'gemini_approve_or_deny_pending_action': {
         const sessionId = args?.sessionId as string;
         const callId = args?.callId as string;
         const decision = args?.decision as string;
@@ -447,9 +573,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       // ======================================================================
-      // gemini_status
+      // gemini_check_task_progress_and_status
       // ======================================================================
-      case 'gemini_status': {
+      case 'gemini_check_task_progress_and_status': {
         const sessionId = args?.sessionId as string;
         const session = sessions.get(sessionId);
 
@@ -481,9 +607,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       // ======================================================================
-      // gemini_cancel
+      // gemini_cancel_running_task
       // ======================================================================
-      case 'gemini_cancel': {
+      case 'gemini_cancel_running_task': {
         const sessionId = args?.sessionId as string;
         const session = sessions.get(sessionId);
 
@@ -502,9 +628,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       // ======================================================================
-      // gemini_list_sessions
+      // gemini_list_all_active_sessions
       // ======================================================================
-      case 'gemini_list_sessions': {
+      case 'gemini_list_all_active_sessions': {
         const tasks = await a2aClient.listTasks();
 
         if (tasks.length === 0) {
@@ -529,9 +655,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       // ======================================================================
-      // gemini_consult
+      // gemini_quick_consultation_for_second_opinion
       // ======================================================================
-      case 'gemini_consult': {
+      case 'gemini_quick_consultation_for_second_opinion': {
         const question = args?.question as string;
         const context = args?.context as string | undefined;
 
@@ -553,9 +679,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       // ======================================================================
-      // gemini_command
+      // gemini_execute_cli_command
       // ======================================================================
-      case 'gemini_command': {
+      case 'gemini_execute_cli_command': {
         const command = args?.command as string;
         const cmdArgs = (args?.args as string[]) || [];
 
@@ -580,9 +706,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       // ======================================================================
-      // gemini_list_commands
+      // gemini_list_available_cli_commands
       // ======================================================================
-      case 'gemini_list_commands': {
+      case 'gemini_list_available_cli_commands': {
         const commands = await a2aClient.listCommands();
 
         if (commands.length === 0) {
@@ -619,9 +745,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       // ======================================================================
-      // gemini_info
+      // gemini_get_agent_capabilities_and_version
       // ======================================================================
-      case 'gemini_info': {
+      case 'gemini_get_agent_capabilities_and_version': {
         try {
           const card = await a2aClient.getAgentCard();
 

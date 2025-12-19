@@ -156,10 +156,14 @@ POST / with message → SSE stream
 
 ## Known Issues / TODOs
 
-1. Build not yet verified after final changes
+1. ~~Build not yet verified after final changes~~ ✅ Build works
 2. Real streaming not implemented (buffered SSE parsing)
 3. No integration tests yet
 4. May need Gemini API key setup in A2A server
+5. **Model Selection Gap:** A2A server doesn't support per-request model selection
+   - See [MODEL_CONFIGURATION.md](./MODEL_CONFIGURATION.md) for full analysis
+   - Currently both delegate_task and consult use same model (determined by settings)
+   - Need to fork A2A server to add `model` to AgentSettings
 
 ## Environment
 
