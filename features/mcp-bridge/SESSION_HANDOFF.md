@@ -177,9 +177,11 @@ POST / with message → SSE stream
 # 1. Login via CLI first (one-time, creates ~/.gemini/oauth_creds.json)
 npm run cli  # Complete browser OAuth flow
 
-# 2. Start A2A server with USE_CCPA
-USE_CCPA=true npm run start -w packages/a2a-server
+# 2. Start A2A server with USE_CCPA and FIXED PORT
+CODER_AGENT_PORT=41242 USE_CCPA=true npm run start -w packages/a2a-server
 ```
+
+**Important:** Always set `CODER_AGENT_PORT=41242` - without it, the server picks a random port each time.
 
 See [AUTHENTICATION.md](./AUTHENTICATION.md) for full details on auth options.
 

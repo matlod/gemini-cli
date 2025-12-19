@@ -110,12 +110,14 @@ npm run cli
 
 # Complete browser OAuth flow...
 
-# 2. Start A2A server with USE_CCPA
-USE_CCPA=true npm run start -w packages/a2a-server
+# 2. Start A2A server with USE_CCPA and fixed port
+CODER_AGENT_PORT=41242 USE_CCPA=true npm run start -w packages/a2a-server
 
 # 3. Start MCP bridge (in another terminal)
-node features/mcp-bridge/dist/index.js
+A2A_SERVER_URL=http://localhost:41242 node features/mcp-bridge/dist/index.js
 ```
+
+**Important:** Set `CODER_AGENT_PORT` for a fixed port. Without it, the server picks a random port each time.
 
 ### Option 2: API Key
 
@@ -155,8 +157,10 @@ Note: The MCP bridge itself doesn't need auth - it just talks to the A2A server 
 
 | Variable | Purpose |
 |----------|---------|
+| `CODER_AGENT_PORT` | Fixed port (e.g., 41242). Default: 0 (random) |
 | `USE_CCPA` | Set to any value to use cached OAuth credentials |
 | `GEMINI_API_KEY` | API key (alternative to OAuth) |
+| `CODER_AGENT_WORKSPACE_PATH` | Default workspace for commands |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Path to service account JSON (for USE_CCPA) |
 | `GOOGLE_CLOUD_PROJECT` | GCP project ID (logged but not required for OAuth) |
 

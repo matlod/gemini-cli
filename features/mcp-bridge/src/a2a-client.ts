@@ -272,14 +272,28 @@ export class A2AClient {
     // Send a cancel signal via message with special handling
     // The A2A server handles cancellation through the executor
     const messageId = crypto.randomUUID();
+    const requestId = crypto.randomUUID();
 
-    const body = {
+    // Build the message object
+    const messageObj = {
       kind: 'message',
       role: 'user',
       parts: [{ kind: 'text', text: '/cancel' }],
       messageId,
+    };
+
+    // Build params
+    const params: Record<string, unknown> = {
+      message: messageObj,
       taskId,
-      contextId,
+    };
+
+    // Wrap in JSON-RPC envelope
+    const body = {
+      jsonrpc: '2.0',
+      id: requestId,
+      method: 'message/stream',
+      params,
     };
 
     const response = await fetch(`${this.baseUrl}/`, {
@@ -297,6 +311,7 @@ export class A2AClient {
 
   /**
    * Send a message to a task and collect SSE events
+   * Uses JSON-RPC format with method: "message/stream"
    */
   async sendMessage(
     message: string,
@@ -306,18 +321,29 @@ export class A2AClient {
     contextId?: string
   ): Promise<A2ATaskResponse[]> {
     const messageId = crypto.randomUUID();
+    const requestId = crypto.randomUUID();
 
-    const body: Record<string, unknown> = {
+    // Build the message object
+    const messageObj: Record<string, unknown> = {
       kind: 'message',
       role: 'user',
       parts: [{ kind: 'text', text: message }],
       messageId,
-      taskId,
-      contextId,
     };
 
+    // Build params
+    const params: Record<string, unknown> = {
+      message: messageObj,
+    };
+
+    // Add taskId if continuing a conversation
+    if (taskId) {
+      params.taskId = taskId;
+    }
+
+    // Add metadata with workspace settings
     if (workspacePath) {
-      body.metadata = {
+      params.metadata = {
         coderAgent: {
           kind: 'agent-settings',
           workspacePath,
@@ -325,6 +351,14 @@ export class A2AClient {
         },
       };
     }
+
+    // Wrap in JSON-RPC envelope
+    const body = {
+      jsonrpc: '2.0',
+      id: requestId,
+      method: 'message/stream',
+      params,
+    };
 
     const response = await fetch(`${this.baseUrl}/`, {
       method: 'POST',
@@ -341,6 +375,7 @@ export class A2AClient {
 
   /**
    * Send a message with streaming callback
+   * Uses JSON-RPC format with method: "message/stream"
    */
   async sendMessageStreaming(
     message: string,
@@ -351,18 +386,29 @@ export class A2AClient {
     contextId?: string
   ): Promise<void> {
     const messageId = crypto.randomUUID();
+    const requestId = crypto.randomUUID();
 
-    const body: Record<string, unknown> = {
+    // Build the message object
+    const messageObj: Record<string, unknown> = {
       kind: 'message',
       role: 'user',
       parts: [{ kind: 'text', text: message }],
       messageId,
-      taskId,
-      contextId,
     };
 
+    // Build params
+    const params: Record<string, unknown> = {
+      message: messageObj,
+    };
+
+    // Add taskId if continuing a conversation
+    if (taskId) {
+      params.taskId = taskId;
+    }
+
+    // Add metadata with workspace settings
     if (workspacePath) {
-      body.metadata = {
+      params.metadata = {
         coderAgent: {
           kind: 'agent-settings',
           workspacePath,
@@ -370,6 +416,14 @@ export class A2AClient {
         },
       };
     }
+
+    // Wrap in JSON-RPC envelope
+    const body = {
+      jsonrpc: '2.0',
+      id: requestId,
+      method: 'message/stream',
+      params,
+    };
 
     const response = await fetch(`${this.baseUrl}/`, {
       method: 'POST',
@@ -416,6 +470,7 @@ export class A2AClient {
 
   /**
    * Send a tool confirmation response
+   * Uses JSON-RPC format with method: "message/stream"
    */
   async sendConfirmation(
     taskId: string,
@@ -425,19 +480,33 @@ export class A2AClient {
     newContent?: string // For modify_with_editor
   ): Promise<A2ATaskResponse[]> {
     const messageId = crypto.randomUUID();
+    const requestId = crypto.randomUUID();
 
     const data: Record<string, unknown> = { callId, outcome };
     if (outcome === 'modify_with_editor' && newContent !== undefined) {
       data.newContent = newContent;
     }
 
-    const body = {
+    // Build the message object with data part
+    const messageObj = {
       kind: 'message',
       role: 'user',
       parts: [{ kind: 'data', data }],
       messageId,
+    };
+
+    // Build params
+    const params: Record<string, unknown> = {
+      message: messageObj,
       taskId,
-      contextId,
+    };
+
+    // Wrap in JSON-RPC envelope
+    const body = {
+      jsonrpc: '2.0',
+      id: requestId,
+      method: 'message/stream',
+      params,
     };
 
     const response = await fetch(`${this.baseUrl}/`, {
