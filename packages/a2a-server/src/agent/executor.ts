@@ -95,7 +95,12 @@ export class CoderAgentExecutor implements AgentExecutor {
     loadEnvironment(); // Will override any global env with workspace envs
     const settings = loadSettings(workspaceRoot);
     const extensions = loadExtensions(workspaceRoot);
-    return loadConfig(settings, new SimpleExtensionLoader(extensions), taskId);
+    return loadConfig(
+      settings,
+      new SimpleExtensionLoader(extensions),
+      taskId,
+      agentSettings.model,
+    );
   }
 
   /**

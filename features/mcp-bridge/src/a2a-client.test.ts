@@ -1,4 +1,10 @@
 /**
+ * @license
+ * Copyright 2025 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/**
  * Tests for A2A Client
  */
 
@@ -49,7 +55,7 @@ describe('A2AClient', () => {
       const result = await client.getAgentCard();
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:41242/.well-known/agent-card.json'
+        'http://localhost:41242/.well-known/agent-card.json',
       );
       expect(result).toEqual(mockAgentCard);
     });
@@ -61,7 +67,7 @@ describe('A2AClient', () => {
       });
 
       await expect(client.getAgentCard()).rejects.toThrow(
-        'Failed to get agent card: Not Found'
+        'Failed to get agent card: Not Found',
       );
     });
   });
@@ -94,7 +100,8 @@ describe('A2AClient', () => {
 
   describe('sendMessage', () => {
     it('should wrap message in JSON-RPC envelope', async () => {
-      const mockSSE = 'data: {"jsonrpc":"2.0","id":"1","result":{"kind":"status-update","status":{"state":"completed"}}}\n\n';
+      const mockSSE =
+        'data: {"jsonrpc":"2.0","id":"1","result":{"kind":"status-update","status":{"state":"completed"}}}\n\n';
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -114,7 +121,9 @@ describe('A2AClient', () => {
       expect(body.params.message.kind).toBe('message');
       expect(body.params.message.role).toBe('user');
       expect(body.params.message.parts[0].text).toBe('Hello');
-      expect(body.params.metadata.coderAgent.workspacePath).toBe('/workspace');
+      expect(body.params.message.metadata.coderAgent.workspacePath).toBe(
+        '/workspace',
+      );
     });
 
     it('should include taskId on message object when provided', async () => {
@@ -143,7 +152,7 @@ describe('A2AClient', () => {
       await client.sendMessage('Run everything', undefined, '/workspace', true);
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(body.params.metadata.coderAgent.autoExecute).toBe(true);
+      expect(body.params.message.metadata.coderAgent.autoExecute).toBe(true);
     });
 
     it('should throw error on failed request', async () => {
@@ -153,7 +162,7 @@ describe('A2AClient', () => {
       });
 
       await expect(
-        client.sendMessage('Hello', undefined, '/workspace')
+        client.sendMessage('Hello', undefined, '/workspace'),
       ).rejects.toThrow('Failed to send message: Internal Server Error');
     });
   });
@@ -191,11 +200,13 @@ describe('A2AClient', () => {
         'call-456',
         'modify_with_editor',
         undefined,
-        'new file content'
+        'new file content',
       );
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(body.params.message.parts[0].data.newContent).toBe('new file content');
+      expect(body.params.message.parts[0].data.newContent).toBe(
+        'new file content',
+      );
     });
   });
 
@@ -301,7 +312,15 @@ describe('A2AClient', () => {
             message: {
               kind: 'message',
               role: 'agent',
-              parts: [{ kind: 'data', data: { subject: 'Planning', description: 'Thinking about approach' } }],
+              parts: [
+                {
+                  kind: 'data',
+                  data: {
+                    subject: 'Planning',
+                    description: 'Thinking about approach',
+                  },
+                },
+              ],
               messageId: 'msg-1',
             },
           },
@@ -325,14 +344,16 @@ describe('A2AClient', () => {
             message: {
               kind: 'message',
               role: 'agent',
-              parts: [{
-                kind: 'data',
-                data: {
-                  callId: 'call-123',
-                  name: 'write_file',
-                  status: 'awaiting_approval',
+              parts: [
+                {
+                  kind: 'data',
+                  data: {
+                    callId: 'call-123',
+                    name: 'write_file',
+                    status: 'awaiting_approval',
+                  },
                 },
-              }],
+              ],
               messageId: 'msg-1',
             },
           },
@@ -424,8 +445,18 @@ describe('A2AClient', () => {
   describe('listCommands', () => {
     it('should fetch commands from endpoint', async () => {
       const mockCommands = [
-        { name: 'init', description: 'Initialize project', arguments: [], subCommands: [] },
-        { name: 'restore', description: 'Restore checkpoint', arguments: [], subCommands: [] },
+        {
+          name: 'init',
+          description: 'Initialize project',
+          arguments: [],
+          subCommands: [],
+        },
+        {
+          name: 'restore',
+          description: 'Restore checkpoint',
+          arguments: [],
+          subCommands: [],
+        },
       ];
 
       mockFetch.mockResolvedValueOnce({
@@ -435,7 +466,9 @@ describe('A2AClient', () => {
 
       const result = await client.listCommands();
 
-      expect(mockFetch).toHaveBeenCalledWith('http://localhost:41242/listCommands');
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:41242/listCommands',
+      );
       expect(result).toEqual(mockCommands);
     });
   });
@@ -459,7 +492,7 @@ describe('A2AClient', () => {
             command: 'restore',
             args: ['checkpoint-1'],
           }),
-        })
+        }),
       );
       expect(result).toEqual(mockResult);
     });
@@ -499,6 +532,8 @@ describe('JSON-RPC Envelope Format', () => {
     const body1 = JSON.parse(mockFetch.mock.calls[0][1].body);
     const body2 = JSON.parse(mockFetch.mock.calls[1][1].body);
 
-    expect(body1.params.message.messageId).not.toBe(body2.params.message.messageId);
+    expect(body1.params.message.messageId).not.toBe(
+      body2.params.message.messageId,
+    );
   });
 });

@@ -1,4 +1,10 @@
 /**
+ * @license
+ * Copyright 2025 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/**
  * A2A Client - Full HTTP client for communicating with Gemini CLI A2A server
  * Covers the complete A2A protocol surface + Gemini CLI extensions
  */
@@ -70,9 +76,17 @@ export interface TaskMetadata {
   mcpServers: Array<{
     name: string;
     status: string;
-    tools: Array<{ name: string; description: string; parameterSchema?: unknown }>;
+    tools: Array<{
+      name: string;
+      description: string;
+      parameterSchema?: unknown;
+    }>;
   }>;
-  availableTools: Array<{ name: string; description: string; parameterSchema?: unknown }>;
+  availableTools: Array<{
+    name: string;
+    description: string;
+    parameterSchema?: unknown;
+  }>;
 }
 
 export interface AgentCard {
@@ -123,7 +137,14 @@ export type ToolConfirmationOutcome =
 export interface ToolCallInfo {
   callId: string;
   name: string;
-  status: 'validating' | 'scheduled' | 'awaiting_approval' | 'executing' | 'success' | 'error' | 'cancelled';
+  status:
+    | 'validating'
+    | 'scheduled'
+    | 'awaiting_approval'
+    | 'executing'
+    | 'success'
+    | 'error'
+    | 'cancelled';
   args?: Record<string, unknown>;
   tool?: {
     name: string;
@@ -186,7 +207,9 @@ export class A2AClient {
    */
   async healthCheck(): Promise<boolean> {
     try {
-      const response = await fetch(`${this.baseUrl}/.well-known/agent-card.json`);
+      const response = await fetch(
+        `${this.baseUrl}/.well-known/agent-card.json`,
+      );
       return response.ok;
     } catch {
       return false;
@@ -203,7 +226,7 @@ export class A2AClient {
   async createTask(
     workspacePath: string,
     autoExecute: boolean = false,
-    contextId?: string
+    contextId?: string,
   ): Promise<string> {
     const response = await fetch(`${this.baseUrl}/tasks`, {
       method: 'POST',
@@ -268,19 +291,27 @@ export class A2AClient {
    * Cancel a task
    * Note: Cancellation is handled via the executor, we send a cancel message
    */
-  async cancelTask(taskId: string, _contextId?: string): Promise<A2ATaskResponse[]> {
+  async cancelTask(
+    taskId: string,
+    contextId?: string,
+  ): Promise<A2ATaskResponse[]> {
     // Send a cancel signal via message with special handling
     // The A2A server handles cancellation through the executor
     const messageId = crypto.randomUUID();
     const requestId = crypto.randomUUID();
 
     // Build the message object
-    const messageObj = {
+    const messageObj: Record<string, unknown> = {
       kind: 'message',
       role: 'user',
       parts: [{ kind: 'text', text: '/cancel' }],
       messageId,
+      taskId,
     };
+
+    if (contextId) {
+      messageObj.contextId = contextId;
+    }
 
     // Build params
     const params: Record<string, unknown> = {
@@ -318,7 +349,8 @@ export class A2AClient {
     taskId?: string,
     workspacePath?: string,
     autoExecute: boolean = false,
-    contextId?: string
+    contextId?: string,
+    model?: string,
   ): Promise<A2ATaskResponse[]> {
     const messageId = crypto.randomUUID();
     const requestId = crypto.randomUUID();
@@ -342,21 +374,23 @@ export class A2AClient {
       messageObj.contextId = contextId;
     }
 
-    // Build params
-    const params: Record<string, unknown> = {
-      message: messageObj,
-    };
-
-    // Add metadata with workspace settings
+    // Add metadata with workspace settings and model directly to message
+    // NOTE: metadata must be ON the message object (like taskId/contextId) for the executor to read it
     if (workspacePath) {
-      params.metadata = {
+      messageObj.metadata = {
         coderAgent: {
           kind: 'agent-settings',
           workspacePath,
           autoExecute,
+          model,
         },
       };
     }
+
+    // Build params
+    const params: Record<string, unknown> = {
+      message: messageObj,
+    };
 
     // Wrap in JSON-RPC envelope
     const body = {
@@ -389,7 +423,8 @@ export class A2AClient {
     taskId?: string,
     workspacePath?: string,
     autoExecute: boolean = false,
-    contextId?: string
+    contextId?: string,
+    model?: string,
   ): Promise<void> {
     const messageId = crypto.randomUUID();
     const requestId = crypto.randomUUID();
@@ -413,21 +448,22 @@ export class A2AClient {
       messageObj.contextId = contextId;
     }
 
-    // Build params
-    const params: Record<string, unknown> = {
-      message: messageObj,
-    };
-
-    // Add metadata with workspace settings
+    // Add metadata with workspace settings and model directly to message
     if (workspacePath) {
-      params.metadata = {
+      messageObj.metadata = {
         coderAgent: {
           kind: 'agent-settings',
           workspacePath,
           autoExecute,
+          model,
         },
       };
     }
+
+    // Build params
+    const params: Record<string, unknown> = {
+      message: messageObj,
+    };
 
     // Wrap in JSON-RPC envelope
     const body = {
@@ -465,7 +501,9 @@ export class A2AClient {
 
       for (const chunk of lines) {
         if (!chunk.trim()) continue;
-        const dataLine = chunk.split('\n').find(line => line.startsWith('data: '));
+        const dataLine = chunk
+          .split('\n')
+          .find((line) => line.startsWith('data: '));
         if (dataLine) {
           try {
             const json = JSON.parse(dataLine.substring(6));
@@ -489,7 +527,7 @@ export class A2AClient {
     callId: string,
     outcome: ToolConfirmationOutcome,
     contextId?: string,
-    newContent?: string // For modify_with_editor
+    newContent?: string, // For modify_with_editor
   ): Promise<A2ATaskResponse[]> {
     const messageId = crypto.randomUUID();
     const requestId = crypto.randomUUID();
@@ -557,7 +595,7 @@ export class A2AClient {
    */
   async executeCommand(
     command: string,
-    args: string[] = []
+    args: string[] = [],
   ): Promise<CommandResult> {
     const response = await fetch(`${this.baseUrl}/executeCommand`, {
       method: 'POST',
@@ -566,8 +604,12 @@ export class A2AClient {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: response.statusText }));
-      throw new Error(error.error || `Failed to execute command: ${response.statusText}`);
+      const error = await response
+        .json()
+        .catch(() => ({ error: response.statusText }));
+      throw new Error(
+        error.error || `Failed to execute command: ${response.statusText}`,
+      );
     }
 
     return response.json();
@@ -579,20 +621,24 @@ export class A2AClient {
   async executeCommandStreaming(
     command: string,
     args: string[] = [],
-    onEvent: (event: A2ATaskResponse) => void
+    onEvent: (event: A2ATaskResponse) => void,
   ): Promise<CommandResult> {
     const response = await fetch(`${this.baseUrl}/executeCommand`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'text/event-stream',
+        Accept: 'text/event-stream',
       },
       body: JSON.stringify({ command, args }),
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: response.statusText }));
-      throw new Error(error.error || `Failed to execute command: ${response.statusText}`);
+      const error = await response
+        .json()
+        .catch(() => ({ error: response.statusText }));
+      throw new Error(
+        error.error || `Failed to execute command: ${response.statusText}`,
+      );
     }
 
     // Check if streaming response
@@ -618,7 +664,9 @@ export class A2AClient {
 
     for (const chunk of text.split('\n\n')) {
       if (!chunk.trim()) continue;
-      const dataLine = chunk.split('\n').find(line => line.startsWith('data: '));
+      const dataLine = chunk
+        .split('\n')
+        .find((line) => line.startsWith('data: '));
       if (dataLine) {
         try {
           const json = JSON.parse(dataLine.substring(6));

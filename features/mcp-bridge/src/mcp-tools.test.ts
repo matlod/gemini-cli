@@ -1,4 +1,10 @@
 /**
+ * @license
+ * Copyright 2025 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/**
  * MCP Tool Handler Tests
  *
  * Tests the MCP server tool handlers that wrap the A2A client.
@@ -148,10 +154,15 @@ describe('Response Formatting', () => {
             message: {
               kind: 'message',
               role: 'agent',
-              parts: [{
-                kind: 'data',
-                data: { subject: 'Analysis', description: 'Reviewing the code structure' },
-              }],
+              parts: [
+                {
+                  kind: 'data',
+                  data: {
+                    subject: 'Analysis',
+                    description: 'Reviewing the code structure',
+                  },
+                },
+              ],
               messageId: 'msg-1',
             },
           },
@@ -201,14 +212,16 @@ describe('Response Formatting', () => {
             message: {
               kind: 'message',
               role: 'agent',
-              parts: [{
-                kind: 'data',
-                data: {
-                  callId: 'call-1',
-                  name: 'read_file',
-                  status: 'success',
+              parts: [
+                {
+                  kind: 'data',
+                  data: {
+                    callId: 'call-1',
+                    name: 'read_file',
+                    status: 'success',
+                  },
                 },
-              }],
+              ],
               messageId: 'msg-1',
             },
           },
@@ -222,14 +235,16 @@ describe('Response Formatting', () => {
             message: {
               kind: 'message',
               role: 'agent',
-              parts: [{
-                kind: 'data',
-                data: {
-                  callId: 'call-2',
-                  name: 'write_file',
-                  status: 'awaiting_approval',
+              parts: [
+                {
+                  kind: 'data',
+                  data: {
+                    callId: 'call-2',
+                    name: 'write_file',
+                    status: 'awaiting_approval',
+                  },
                 },
-              }],
+              ],
               messageId: 'msg-2',
             },
           },
@@ -283,7 +298,11 @@ describe('Edge Cases', () => {
         text: () => Promise.resolve(mockSSE),
       });
 
-      const result = await client.sendMessage('Large task', undefined, '/workspace');
+      const result = await client.sendMessage(
+        'Large task',
+        undefined,
+        '/workspace',
+      );
       const parsed = client.parseEvents(result);
 
       expect(parsed.textContent).toHaveLength(100);
@@ -372,9 +391,18 @@ describe('Edge Cases', () => {
       const events: A2ATaskResponse[] = [
         { id: 'task-1', contextId: 'ctx-1', status: { state: 'submitted' } },
         { id: 'task-1', contextId: 'ctx-1', status: { state: 'working' } },
-        { id: 'task-1', contextId: 'ctx-1', status: { state: 'input-required' } },
+        {
+          id: 'task-1',
+          contextId: 'ctx-1',
+          status: { state: 'input-required' },
+        },
         { id: 'task-1', contextId: 'ctx-1', status: { state: 'working' } },
-        { id: 'task-1', contextId: 'ctx-1', status: { state: 'completed' }, final: true },
+        {
+          id: 'task-1',
+          contextId: 'ctx-1',
+          status: { state: 'completed' },
+          final: true,
+        },
       ];
 
       const parsed = client.parseEvents(events);
@@ -416,7 +444,12 @@ describe('Workspace Handling', () => {
 
   it('should include workspace in metadata', async () => {
     const mockSSE = createMockSSE([
-      { id: 'task-1', contextId: 'ctx-1', status: { state: 'completed' }, final: true },
+      {
+        id: 'task-1',
+        contextId: 'ctx-1',
+        status: { state: 'completed' },
+        final: true,
+      },
     ]);
 
     mockFetch.mockResolvedValueOnce({
@@ -427,12 +460,19 @@ describe('Workspace Handling', () => {
     await client.sendMessage('test', undefined, '/path/to/workspace', false);
 
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.params.metadata.coderAgent.workspacePath).toBe('/path/to/workspace');
+    expect(body.params.message.metadata.coderAgent.workspacePath).toBe(
+      '/path/to/workspace',
+    );
   });
 
   it('should include autoExecute setting', async () => {
     const mockSSE = createMockSSE([
-      { id: 'task-1', contextId: 'ctx-1', status: { state: 'completed' }, final: true },
+      {
+        id: 'task-1',
+        contextId: 'ctx-1',
+        status: { state: 'completed' },
+        final: true,
+      },
     ]);
 
     mockFetch.mockResolvedValueOnce({
@@ -443,12 +483,17 @@ describe('Workspace Handling', () => {
     await client.sendMessage('test', undefined, '/workspace', true);
 
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.params.metadata.coderAgent.autoExecute).toBe(true);
+    expect(body.params.message.metadata.coderAgent.autoExecute).toBe(true);
   });
 
   it('should work without workspace (no metadata)', async () => {
     const mockSSE = createMockSSE([
-      { id: 'task-1', contextId: 'ctx-1', status: { state: 'completed' }, final: true },
+      {
+        id: 'task-1',
+        contextId: 'ctx-1',
+        status: { state: 'completed' },
+        final: true,
+      },
     ]);
 
     mockFetch.mockResolvedValueOnce({
@@ -493,7 +538,12 @@ describe('CLI Command Handling', () => {
           description: 'Restore checkpoints',
           arguments: [],
           subCommands: [
-            { name: 'list', description: 'List checkpoints', arguments: [], subCommands: [] },
+            {
+              name: 'list',
+              description: 'List checkpoints',
+              arguments: [],
+              subCommands: [],
+            },
           ],
         },
       ];
@@ -530,7 +580,9 @@ describe('CLI Command Handling', () => {
         json: () => Promise.resolve({ error: 'Unknown command' }),
       });
 
-      await expect(client.executeCommand('unknown')).rejects.toThrow('Unknown command');
+      await expect(client.executeCommand('unknown')).rejects.toThrow(
+        'Unknown command',
+      );
     });
   });
 });
@@ -554,7 +606,7 @@ describe('Discovery and Health', () => {
       const healthy = await client.healthCheck();
       expect(healthy).toBe(true);
       expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:41242/.well-known/agent-card.json'
+        'http://localhost:41242/.well-known/agent-card.json',
       );
     });
 
@@ -587,7 +639,11 @@ describe('Discovery and Health', () => {
           stateTransitionHistory: true,
         },
         skills: [
-          { id: 'code-gen', name: 'Code Generation', description: 'Generates code' },
+          {
+            id: 'code-gen',
+            name: 'Code Generation',
+            description: 'Generates code',
+          },
         ],
       };
 
@@ -609,7 +665,7 @@ describe('Discovery and Health', () => {
       });
 
       await expect(client.getAgentCard()).rejects.toThrow(
-        'Failed to get agent card: Service Unavailable'
+        'Failed to get agent card: Service Unavailable',
       );
     });
   });
@@ -698,7 +754,7 @@ describe('Streaming Callbacks', () => {
       'test',
       (event) => events.push(event),
       undefined,
-      '/workspace'
+      '/workspace',
     );
 
     expect(events).toHaveLength(2);

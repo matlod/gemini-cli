@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+
+/**
+ * @license
+ * Copyright 2025 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * MCP Bridge - Full A2A Coverage
  *
@@ -81,19 +88,30 @@ Returns: Session ID (save this to continue the conversation!), Gemini's response
       properties: {
         task: {
           type: 'string',
-          description: 'Detailed description of what you want Gemini to do. Be specific about scope, files, and expected output format.',
+          description:
+            'Detailed description of what you want Gemini to do. Be specific about scope, files, and expected output format.',
         },
         workspace: {
           type: 'string',
-          description: 'Absolute path to the working directory for this task. Defaults to GEMINI_WORKSPACE env var or current directory.',
+          description:
+            'Absolute path to the working directory for this task. Defaults to GEMINI_WORKSPACE env var or current directory.',
         },
         autoExecute: {
           type: 'boolean',
-          description: 'If true, Gemini will automatically execute all tool calls without asking for approval (YOLO mode). Use with caution. Default: false',
+          description:
+            'If true, Gemini will automatically execute all tool calls without asking for approval (YOLO mode). Use with caution. Default: false',
         },
         sessionId: {
           type: 'string',
-          description: 'To CONTINUE a previous conversation with memory preserved, pass the session ID from a prior response. To start FRESH with no memory, omit this parameter. Multi-step tasks should reuse the same sessionId.',
+          description:
+            'To CONTINUE a previous conversation with memory preserved, pass the session ID from a prior response. To start FRESH with no memory, omit this parameter. Multi-step tasks should reuse the same sessionId.',
+        },
+        model: {
+          type: 'string',
+          enum: ['flash', 'pro'],
+          description:
+            'Model tier: "flash" for fast/cheap grunt work (default), "pro" for complex reasoning tasks.',
+          default: 'flash',
         },
       },
       required: ['task'],
@@ -130,20 +148,30 @@ TYPICAL FLOW:
       properties: {
         sessionId: {
           type: 'string',
-          description: 'The session ID from the original gemini_delegate_task_to_assistant call',
+          description:
+            'The session ID from the original gemini_delegate_task_to_assistant call',
         },
         callId: {
           type: 'string',
-          description: 'The specific tool call ID to respond to (from the PENDING DECISIONS section)',
+          description:
+            'The specific tool call ID to respond to (from the PENDING DECISIONS section)',
         },
         decision: {
           type: 'string',
-          enum: ['approve', 'deny', 'trust_always', 'trust_tool', 'trust_server', 'edit'],
+          enum: [
+            'approve',
+            'deny',
+            'trust_always',
+            'trust_tool',
+            'trust_server',
+            'edit',
+          ],
           description: 'Your decision for this pending action',
         },
         editedContent: {
           type: 'string',
-          description: 'When decision is "edit": provide the modified file content you want saved instead of what Gemini proposed',
+          description:
+            'When decision is "edit": provide the modified file content you want saved instead of what Gemini proposed',
         },
       },
       required: ['sessionId', 'callId', 'decision'],
@@ -259,11 +287,20 @@ TIPS:
       properties: {
         question: {
           type: 'string',
-          description: 'Your question or what you want Gemini to review. Be specific about what kind of feedback you want.',
+          description:
+            'Your question or what you want Gemini to review. Be specific about what kind of feedback you want.',
         },
         context: {
           type: 'string',
-          description: 'Supporting context: code snippets, implementation plans, file contents, error messages, etc. The more context, the better the consultation.',
+          description:
+            'Supporting context: code snippets, implementation plans, file contents, error messages, etc. The more context, the better the consultation.',
+        },
+        model: {
+          type: 'string',
+          enum: ['flash', 'pro'],
+          description:
+            'Model tier: "pro" for deep analysis (default), "flash" for quick opinions.',
+          default: 'pro',
         },
       },
       required: ['question'],
@@ -306,12 +343,14 @@ EXAMPLES:
       properties: {
         command: {
           type: 'string',
-          description: 'The command name to execute: "init", "restore", or "extensions"',
+          description:
+            'The command name to execute: "init", "restore", or "extensions"',
         },
         args: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Arguments for the command, e.g., ["list"] for "restore list" or ["checkpoint-name"] for restore',
+          description:
+            'Arguments for the command, e.g., ["list"] for "restore list" or ["checkpoint-name"] for restore',
         },
       },
       required: ['command'],
@@ -400,13 +439,14 @@ function formatParsedEvents(parsed: ParsedEvents): string {
   }
 
   // Tool call updates
-  const completedTools = parsed.toolCalls.filter(t =>
-    ['success', 'error', 'cancelled'].includes(t.status)
+  const completedTools = parsed.toolCalls.filter((t) =>
+    ['success', 'error', 'cancelled'].includes(t.status),
   );
   if (completedTools.length > 0) {
     sections.push('\n🔧 TOOL RESULTS:');
     for (const tool of completedTools) {
-      const icon = tool.status === 'success' ? '✓' : tool.status === 'error' ? '✗' : '⊘';
+      const icon =
+        tool.status === 'success' ? '✓' : tool.status === 'error' ? '✗' : '⊘';
       sections.push(`  ${icon} ${tool.name || tool.callId}: ${tool.status}`);
     }
   }
@@ -416,12 +456,16 @@ function formatParsedEvents(parsed: ParsedEvents): string {
     sections.push('\n⏳ PENDING DECISIONS:');
     for (const tool of parsed.pendingApprovals) {
       sections.push(`  • callId: ${tool.callId}`);
-      sections.push(`    Tool: ${tool.tool?.displayName || tool.name || 'unknown'}`);
+      sections.push(
+        `    Tool: ${tool.tool?.displayName || tool.name || 'unknown'}`,
+      );
       if (tool.confirmationDetails?.message) {
         sections.push(`    Message: ${tool.confirmationDetails.message}`);
       }
     }
-    sections.push('\nUse gemini_approve_or_deny_pending_action to respond to these.');
+    sections.push(
+      '\nUse gemini_approve_or_deny_pending_action to respond to these.',
+    );
   }
 
   // Citations
@@ -467,13 +511,20 @@ function formatEvents(events: A2ATaskResponse[]): string {
  */
 function mapDecision(decision: string): ToolConfirmationOutcome {
   switch (decision) {
-    case 'approve': return 'proceed_once';
-    case 'deny': return 'cancel';
-    case 'trust_always': return 'proceed_always';
-    case 'trust_tool': return 'proceed_always_tool';
-    case 'trust_server': return 'proceed_always_server';
-    case 'edit': return 'modify_with_editor';
-    default: return 'proceed_once';
+    case 'approve':
+      return 'proceed_once';
+    case 'deny':
+      return 'cancel';
+    case 'trust_always':
+      return 'proceed_always';
+    case 'trust_tool':
+      return 'proceed_always_tool';
+    case 'trust_server':
+      return 'proceed_always_server';
+    case 'edit':
+      return 'modify_with_editor';
+    default:
+      return 'proceed_once';
   }
 }
 
@@ -490,7 +541,7 @@ const server = new Server(
     capabilities: {
       tools: {},
     },
-  }
+  },
 );
 
 // Handle tool listing
@@ -508,10 +559,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const isHealthy = await a2aClient.healthCheck();
       if (!isHealthy) {
         return {
-          content: [{
-            type: 'text',
-            text: `Error: A2A server not reachable at ${A2A_SERVER_URL}\n\nStart it with:\n  cd packages/a2a-server && npm run start`,
-          }],
+          content: [
+            {
+              type: 'text',
+              text: `Error: A2A server not reachable at ${A2A_SERVER_URL}\n\nStart it with:\n  cd packages/a2a-server && npm run start`,
+            },
+          ],
         };
       }
     }
@@ -525,15 +578,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const workspace = (args?.workspace as string) || DEFAULT_WORKSPACE;
         const autoExecute = (args?.autoExecute as boolean) || false;
         const existingSessionId = args?.sessionId as string | undefined;
+        const model = (args?.model as string) || 'flash';
 
-        const session = existingSessionId ? sessions.get(existingSessionId) : undefined;
+        const session = existingSessionId
+          ? sessions.get(existingSessionId)
+          : undefined;
 
         const events = await a2aClient.sendMessage(
           task,
           session?.taskId,
           workspace,
           autoExecute,
-          session?.contextId
+          session?.contextId,
+          model,
         );
 
         const parsed = a2aClient.parseEvents(events);
@@ -564,7 +621,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const session = sessions.get(sessionId);
         if (!session) {
           return {
-            content: [{ type: 'text', text: `Error: Session "${sessionId}" not found.\n\nActive sessions: ${Array.from(sessions.keys()).join(', ') || 'none'}` }],
+            content: [
+              {
+                type: 'text',
+                text: `Error: Session "${sessionId}" not found.\n\nActive sessions: ${Array.from(sessions.keys()).join(', ') || 'none'}`,
+              },
+            ],
           };
         }
 
@@ -574,7 +636,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           callId,
           outcome,
           session.contextId,
-          outcome === 'modify_with_editor' ? editedContent : undefined
+          outcome === 'modify_with_editor' ? editedContent : undefined,
         );
 
         return {
@@ -591,7 +653,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         if (!session) {
           return {
-            content: [{ type: 'text', text: `Error: Session "${sessionId}" not found` }],
+            content: [
+              { type: 'text', text: `Error: Session "${sessionId}" not found` },
+            ],
           };
         }
 
@@ -604,11 +668,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           `Model: ${status.model}`,
           '',
           `Available Tools (${status.availableTools.length}):`,
-          ...status.availableTools.slice(0, 20).map(t => `  • ${t.name}: ${t.description?.slice(0, 60) || 'No description'}...`),
-          status.availableTools.length > 20 ? `  ... and ${status.availableTools.length - 20} more` : '',
+          ...status.availableTools
+            .slice(0, 20)
+            .map(
+              (t) =>
+                `  • ${t.name}: ${t.description?.slice(0, 60) || 'No description'}...`,
+            ),
+          status.availableTools.length > 20
+            ? `  ... and ${status.availableTools.length - 20} more`
+            : '',
           '',
           `MCP Servers (${status.mcpServers.length}):`,
-          ...status.mcpServers.map(s => `  • ${s.name} (${s.status}): ${s.tools.length} tools`),
+          ...status.mcpServers.map(
+            (s) => `  • ${s.name} (${s.status}): ${s.tools.length} tools`,
+          ),
         ];
 
         return {
@@ -625,15 +698,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         if (!session) {
           return {
-            content: [{ type: 'text', text: `Error: Session "${sessionId}" not found` }],
+            content: [
+              { type: 'text', text: `Error: Session "${sessionId}" not found` },
+            ],
           };
         }
 
-        const events = await a2aClient.cancelTask(session.taskId, session.contextId);
+        const events = await a2aClient.cancelTask(
+          session.taskId,
+          session.contextId,
+        );
         sessions.delete(sessionId);
 
         return {
-          content: [{ type: 'text', text: `Session ${sessionId} cancelled.\n\n${formatEvents(events)}` }],
+          content: [
+            {
+              type: 'text',
+              text: `Session ${sessionId} cancelled.\n\n${formatEvents(events)}`,
+            },
+          ],
         };
       }
 
@@ -652,7 +735,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const lines = ['Active Sessions:', ''];
         for (const task of tasks) {
           const localSession = Array.from(sessions.entries()).find(
-            ([, v]) => v.taskId === task.id
+            ([, v]) => v.taskId === task.id,
           );
           lines.push(`• ${localSession?.[0] || task.id}`);
           lines.push(`  State: ${task.taskState} | Model: ${task.model}`);
@@ -670,6 +753,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'gemini_quick_consultation_for_second_opinion': {
         const question = args?.question as string;
         const context = args?.context as string | undefined;
+        const model = (args?.model as string) || 'pro';
 
         const fullMessage = context
           ? `${question}\n\n---\nContext:\n${context}`
@@ -680,7 +764,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           fullMessage,
           undefined,
           DEFAULT_WORKSPACE,
-          true
+          true,
+          undefined,
+          model,
         );
 
         return {
@@ -710,7 +796,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           };
         } catch (error) {
           return {
-            content: [{ type: 'text', text: `Command failed: ${error instanceof Error ? error.message : String(error)}` }],
+            content: [
+              {
+                type: 'text',
+                text: `Command failed: ${error instanceof Error ? error.message : String(error)}`,
+              },
+            ],
           };
         }
       }
@@ -727,12 +818,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           };
         }
 
-        const formatCmd = (cmd: typeof commands[0], indent = 0): string[] => {
+        const formatCmd = (cmd: (typeof commands)[0], indent = 0): string[] => {
           const prefix = '  '.repeat(indent);
           const lines = [`${prefix}• ${cmd.name}: ${cmd.description}`];
           if (cmd.arguments && cmd.arguments.length > 0) {
             for (const arg of cmd.arguments) {
-              lines.push(`${prefix}    arg: ${arg.name}${arg.isRequired ? ' (required)' : ''} - ${arg.description}`);
+              lines.push(
+                `${prefix}    arg: ${arg.name}${arg.isRequired ? ' (required)' : ''} - ${arg.description}`,
+              );
             }
           }
           if (cmd.subCommands && cmd.subCommands.length > 0) {
@@ -775,7 +868,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             `  • State History: ${card.capabilities.stateTransitionHistory}`,
             '',
             'Skills:',
-            ...card.skills.map(s => `  • ${s.name}: ${s.description}`),
+            ...card.skills.map((s) => `  • ${s.name}: ${s.description}`),
           ];
 
           return {
@@ -783,7 +876,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           };
         } catch {
           return {
-            content: [{ type: 'text', text: `A2A server not available at ${A2A_SERVER_URL}` }],
+            content: [
+              {
+                type: 'text',
+                text: `A2A server not available at ${A2A_SERVER_URL}`,
+              },
+            ],
           };
         }
       }

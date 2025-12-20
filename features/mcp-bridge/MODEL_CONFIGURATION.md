@@ -1,10 +1,16 @@
 # Model Configuration - Technical Analysis
 
-**Status:** Research complete, A2A server fork likely needed for per-request model selection.
+**Status:** ✅ IMPLEMENTED - Per-request model selection working with `flash`
+and `pro` aliases.
 
 ## Executive Summary
 
-The A2A server currently selects models at **startup time** based on settings, not per-request. To support the "Flash for grunt work, Pro for consultation" pattern, we need to modify the A2A server to accept a `model` parameter in `AgentSettings`.
+~~The A2A server currently selects models at **startup time** based on settings,
+not per-request.~~
+
+**IMPLEMENTED:** The A2A server now accepts a `model` parameter in
+`AgentSettings`, allowing per-request model selection. Use `"flash"` for
+fast/cheap tasks and `"pro"` for complex reasoning.
 
 ---
 
@@ -13,26 +19,29 @@ The A2A server currently selects models at **startup time** based on settings, n
 From `packages/core/src/config/models.ts`:
 
 ### Preview Models (Gemini 3)
+
 ```typescript
-PREVIEW_GEMINI_MODEL = 'gemini-3-pro-preview'
-PREVIEW_GEMINI_FLASH_MODEL = 'gemini-3-flash-preview'
-PREVIEW_GEMINI_MODEL_AUTO = 'auto-gemini-3'
+PREVIEW_GEMINI_MODEL = 'gemini-3-pro-preview';
+PREVIEW_GEMINI_FLASH_MODEL = 'gemini-3-flash-preview';
+PREVIEW_GEMINI_MODEL_AUTO = 'auto-gemini-3';
 ```
 
 ### Default Models (Gemini 2.5)
+
 ```typescript
-DEFAULT_GEMINI_MODEL = 'gemini-2.5-pro'
-DEFAULT_GEMINI_FLASH_MODEL = 'gemini-2.5-flash'
-DEFAULT_GEMINI_FLASH_LITE_MODEL = 'gemini-2.5-flash-lite'
-DEFAULT_GEMINI_MODEL_AUTO = 'auto-gemini-2.5'
+DEFAULT_GEMINI_MODEL = 'gemini-2.5-pro';
+DEFAULT_GEMINI_FLASH_MODEL = 'gemini-2.5-flash';
+DEFAULT_GEMINI_FLASH_LITE_MODEL = 'gemini-2.5-flash-lite';
+DEFAULT_GEMINI_MODEL_AUTO = 'auto-gemini-2.5';
 ```
 
 ### Model Aliases
+
 ```typescript
-GEMINI_MODEL_ALIAS_PRO = 'pro'
-GEMINI_MODEL_ALIAS_FLASH = 'flash'
-GEMINI_MODEL_ALIAS_FLASH_LITE = 'flash-lite'
-GEMINI_MODEL_ALIAS_AUTO = 'auto'
+GEMINI_MODEL_ALIAS_PRO = 'pro';
+GEMINI_MODEL_ALIAS_FLASH = 'flash';
+GEMINI_MODEL_ALIAS_FLASH_LITE = 'flash-lite';
+GEMINI_MODEL_ALIAS_AUTO = 'auto';
 ```
 
 ---
@@ -40,15 +49,18 @@ GEMINI_MODEL_ALIAS_AUTO = 'auto'
 ## Current Model Selection Flow
 
 ### 1. Settings Load
+
 **File:** `packages/a2a-server/src/config/settings.ts`
 
 Settings are loaded hierarchically:
+
 ```
 ~/.gemini/settings.json          (user-level)
 {workspace}/.gemini/settings.json (project-level, overrides user)
 ```
 
 ### 2. Config Creation
+
 **File:** `packages/a2a-server/src/config/config.ts` (lines 42-44)
 
 ```typescript
@@ -58,6 +70,7 @@ model: settings.general?.previewFeatures
 ```
 
 ### 3. AgentSettings Interface
+
 **File:** `packages/a2a-server/src/types.ts` (lines 46-50)
 
 ```typescript
@@ -74,18 +87,21 @@ export interface AgentSettings {
 ## The Gap
 
 ### What We Want
-| Use Case | Desired Model | Mode |
-|----------|--------------|------|
+
+| Use Case              | Desired Model       | Mode               |
+| --------------------- | ------------------- | ------------------ |
 | Grunt work (delegate) | Flash (fast, cheap) | Async, interactive |
-| Consultation (review) | Pro (smart) | Sync, auto-execute |
+| Consultation (review) | Pro (smart)         | Sync, auto-execute |
 
 ### What Exists
+
 - Model is set **once** when A2A server starts
 - Based on `settings.general.previewFeatures` flag
 - All tasks use the same model
 - No per-request model selection
 
 ### Current AgentSettings (sent per-request)
+
 ```typescript
 {
   kind: 'agent-settings',
@@ -98,20 +114,21 @@ export interface AgentSettings {
 
 ## Key Files Reference
 
-| File | Purpose |
-|------|---------|
-| `packages/core/src/config/models.ts` | Model constants and resolution logic |
-| `packages/a2a-server/src/config/config.ts` | Config creation, model selection |
-| `packages/a2a-server/src/config/settings.ts` | Settings loading from JSON files |
-| `packages/a2a-server/src/types.ts` | AgentSettings interface definition |
-| `packages/a2a-server/src/agent/executor.ts` | Task creation, uses AgentSettings |
-| `packages/a2a-server/src/http/app.ts` | HTTP endpoints, receives AgentSettings |
+| File                                         | Purpose                                |
+| -------------------------------------------- | -------------------------------------- |
+| `packages/core/src/config/models.ts`         | Model constants and resolution logic   |
+| `packages/a2a-server/src/config/config.ts`   | Config creation, model selection       |
+| `packages/a2a-server/src/config/settings.ts` | Settings loading from JSON files       |
+| `packages/a2a-server/src/types.ts`           | AgentSettings interface definition     |
+| `packages/a2a-server/src/agent/executor.ts`  | Task creation, uses AgentSettings      |
+| `packages/a2a-server/src/http/app.ts`        | HTTP endpoints, receives AgentSettings |
 
 ---
 
 ## Proposed Fix: Add Model to AgentSettings
 
 ### 1. Update Types
+
 **File:** `packages/a2a-server/src/types.ts`
 
 ```typescript
@@ -119,11 +136,12 @@ export interface AgentSettings {
   kind: CoderAgentEvent.StateAgentSettingsEvent;
   workspacePath: string;
   autoExecute?: boolean;
-  model?: string;  // NEW: 'flash' | 'pro' | specific model name
+  model?: string; // NEW: 'flash' | 'pro' | specific model name
 }
 ```
 
 ### 2. Update Config Creation
+
 **File:** `packages/a2a-server/src/config/config.ts`
 
 ```typescript
@@ -131,12 +149,12 @@ export async function loadConfig(
   settings: Settings,
   extensionLoader: ExtensionLoader,
   taskId: string,
-  requestedModel?: string,  // NEW parameter
+  requestedModel?: string, // NEW parameter
 ): Promise<Config> {
   // ...
   const configParams: ConfigParameters = {
     // ...
-    model: resolveModel(requestedModel, settings),  // NEW: per-request model
+    model: resolveModel(requestedModel, settings), // NEW: per-request model
     // ...
   };
 }
@@ -154,7 +172,7 @@ function resolveModel(requested?: string, settings?: Settings): string {
           ? PREVIEW_GEMINI_MODEL
           : DEFAULT_GEMINI_MODEL;
       default:
-        return requested;  // Allow specific model names
+        return requested; // Allow specific model names
     }
   }
   // Fallback to settings-based selection
@@ -165,6 +183,7 @@ function resolveModel(requested?: string, settings?: Settings): string {
 ```
 
 ### 3. Update Executor
+
 **File:** `packages/a2a-server/src/agent/executor.ts`
 
 Pass `agentSettings.model` to `loadConfig()`:
@@ -231,7 +250,7 @@ if (workspacePath) {
       kind: 'agent-settings',
       workspacePath,
       autoExecute,
-      model,  // NEW
+      model, // NEW
     },
   };
 }
@@ -242,12 +261,14 @@ if (workspacePath) {
 ## Configuration Locations Summary
 
 ### A2A Server Settings
+
 ```
 ~/.gemini/settings.json
 {workspace}/.gemini/settings.json
 ```
 
 Example:
+
 ```json
 {
   "general": {
@@ -257,12 +278,14 @@ Example:
 ```
 
 ### Claude Code MCP Config
+
 ```
 ~/.claude/settings.json
 {project}/.claude/settings.json
 ```
 
 Example:
+
 ```json
 {
   "mcpServers": {
@@ -279,11 +302,13 @@ Example:
 ```
 
 ### Project Instructions (CLAUDE.md)
+
 ```
 {project}/CLAUDE.md
 ```
 
 This file is for AI instructions, not configuration. Could document:
+
 - When to use Flash vs Pro
 - Project-specific delegation patterns
 - Which tasks are good for the intern
@@ -292,9 +317,14 @@ This file is for AI instructions, not configuration. Could document:
 
 ## Implementation Priority
 
-1. **Phase 1 (Current):** Ship with same-model limitation, document clearly
-2. **Phase 2 (Fork):** Modify A2A server to accept model in AgentSettings
-3. **Phase 3 (Polish):** Update MCP bridge to pass model, add smart defaults
+1. ~~**Phase 1 (Current):** Ship with same-model limitation, document clearly~~
+2. ~~**Phase 2 (Fork):** Modify A2A server to accept model in AgentSettings~~ ✅
+   DONE
+3. ~~**Phase 3 (Polish):** Update MCP bridge to pass model, add smart defaults~~
+   ✅ DONE
+
+**All phases complete!** Model selection works via `model: "flash"` or
+`model: "pro"` parameter.
 
 ---
 

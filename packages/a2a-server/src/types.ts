@@ -47,6 +47,7 @@ export interface AgentSettings {
   kind: CoderAgentEvent.StateAgentSettingsEvent;
   workspacePath: string;
   autoExecute?: boolean;
+  model?: string; // 'flash' | 'pro' | 'flash-lite' | specific model name
 }
 
 export interface ToolCallConfirmation {

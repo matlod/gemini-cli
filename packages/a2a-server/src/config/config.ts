@@ -23,6 +23,7 @@ import {
   type ExtensionLoader,
   startupProfiler,
   PREVIEW_GEMINI_MODEL,
+  resolveModel,
 } from '@google/gemini-cli-core';
 
 import { logger } from '../utils/logger.js';
@@ -33,15 +34,23 @@ export async function loadConfig(
   settings: Settings,
   extensionLoader: ExtensionLoader,
   taskId: string,
+  requestedModel?: string,
 ): Promise<Config> {
   const workspaceDir = process.cwd();
   const adcFilePath = process.env['GOOGLE_APPLICATION_CREDENTIALS'];
 
+  // Resolve the model: use requested model if provided, otherwise use settings default
+  const previewEnabled = settings.general?.previewFeatures ?? false;
+  const defaultModel = previewEnabled
+    ? PREVIEW_GEMINI_MODEL
+    : DEFAULT_GEMINI_MODEL;
+  const model = requestedModel
+    ? resolveModel(requestedModel, previewEnabled)
+    : defaultModel;
+
   const configParams: ConfigParameters = {
     sessionId: taskId,
-    model: settings.general?.previewFeatures
-      ? PREVIEW_GEMINI_MODEL
-      : DEFAULT_GEMINI_MODEL,
+    model,
     embeddingModel: DEFAULT_GEMINI_EMBEDDING_MODEL,
     sandbox: undefined, // Sandbox might not be relevant for a server-side agent
     targetDir: workspaceDir, // Or a specific directory the agent operates on
