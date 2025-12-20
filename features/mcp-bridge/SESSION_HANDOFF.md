@@ -177,6 +177,8 @@ npm run build
 | "A2A server not reachable" | Start A2A server on port 41242                  |
 | Session not found          | Sessions are in-memory, lost on A2A restart     |
 | Model not switching        | Check metadata is on message object, not params |
+| callId shows "undefined"   | Extract from `request.callId`, not top-level    |
+| Tool approval cancelled    | Include workspace metadata in confirmation msg  |
 
 ## Related Files (Outside mcp-bridge)
 

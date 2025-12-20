@@ -111,8 +111,12 @@ function createPendingApprovalEvent(
         parts: [{
           kind: 'data',
           data: {
-            callId,
-            name: toolName,
+            // Real A2A format: callId is nested inside request object
+            request: {
+              callId,
+              name: toolName,
+              args: {},
+            },
             status: 'awaiting_approval',
             tool: { name: toolName, displayName: toolName },
             confirmationDetails: { type: 'user-confirmation', message },

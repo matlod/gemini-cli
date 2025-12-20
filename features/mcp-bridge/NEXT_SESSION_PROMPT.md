@@ -200,7 +200,18 @@ claude mcp add gemini --scope project -- node /path/to/dist/index.js -e A2A_SERV
 1. Added integration tests for model selection (flash/pro verification)
 2. Implemented MCP progress notifications (streaming status updates)
 3. Fixed MCP config: use `.mcp.json` (NOT `settings.json`) for MCP servers
-4. Created project-scoped `.mcp.json` for MCP server config
-5. Updated all documentation
+4. Fixed `callId` extraction - was nested in `request` object, not top-level
+5. Fixed `taskId`/`contextId` placement in `sendConfirmation` - must be ON message object
+6. Fixed tool approval flow - confirmation messages now include workspace metadata
+7. Cleaned up redundant `taskId` at params level in `cancelTask`
 
-Total: 141 tests passing, all features working.
+Total: 141 tests passing.
+
+## Current Task
+
+Testing manual tool approval flow. After restart, try:
+1. `gemini_delegate_task_to_assistant` with a file write task (no autoExecute)
+2. When it shows PENDING DECISIONS with a callId, use `gemini_approve_or_deny_pending_action`
+3. Verify the file gets created
+
+If approval still fails, check A2A server logs for `[Task] Handling tool confirmation`.

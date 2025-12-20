@@ -41,8 +41,8 @@ const DEFAULT_WORKSPACE = process.env.GEMINI_WORKSPACE || process.cwd();
 
 const a2aClient = new A2AClient(A2A_SERVER_URL);
 
-// Track active sessions: sessionId -> { taskId, contextId }
-const sessions = new Map<string, { taskId: string; contextId: string }>();
+/// Track active sessions: sessionId -> { taskId, contextId, workspace }
+const sessions = new Map<string, { taskId: string; contextId: string; workspace?: string }>();
 
 // ============================================================================
 // Tool Definitions - Full A2A Coverage
@@ -694,12 +694,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         const parsed = a2aClient.parseEvents(events);
 
-        // Track session
+        // Track session with workspace for confirmations
         if (parsed.taskId) {
           const sessionId = existingSessionId || parsed.taskId;
           sessions.set(sessionId, {
             taskId: parsed.taskId,
             contextId: parsed.contextId || parsed.taskId,
+            workspace,
           });
         }
 
@@ -736,6 +737,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           outcome,
           session.contextId,
           outcome === 'modify_with_editor' ? editedContent : undefined,
+          session.workspace,
         );
 
         return {

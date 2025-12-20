@@ -181,7 +181,8 @@ describe('A2AClient', () => {
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(body.jsonrpc).toBe('2.0');
       expect(body.method).toBe('message/stream');
-      expect(body.params.taskId).toBe('task-123');
+      // CRITICAL: taskId must be ON the message object, not at params level
+      expect(body.params.message.taskId).toBe('task-123');
       expect(body.params.message.parts[0].kind).toBe('data');
       expect(body.params.message.parts[0].data.callId).toBe('call-456');
       expect(body.params.message.parts[0].data.outcome).toBe('proceed_once');
@@ -223,7 +224,9 @@ describe('A2AClient', () => {
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(body.method).toBe('message/stream');
-      expect(body.params.taskId).toBe('task-123');
+      // taskId must be ON the message object, not at params level
+      expect(body.params.message.taskId).toBe('task-123');
+      expect(body.params.message.contextId).toBe('context-456');
       expect(body.params.message.parts[0].text).toBe('/cancel');
     });
   });
@@ -348,9 +351,14 @@ describe('A2AClient', () => {
                 {
                   kind: 'data',
                   data: {
-                    callId: 'call-123',
-                    name: 'write_file',
+                    // Real A2A format: callId is nested inside request object
+                    request: {
+                      callId: 'call-123',
+                      name: 'write_file',
+                      args: { path: '/tmp/test.txt', content: 'hello' },
+                    },
                     status: 'awaiting_approval',
+                    confirmationDetails: { type: 'write' },
                   },
                 },
               ],

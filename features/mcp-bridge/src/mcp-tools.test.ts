@@ -216,8 +216,11 @@ describe('Response Formatting', () => {
                 {
                   kind: 'data',
                   data: {
-                    callId: 'call-1',
-                    name: 'read_file',
+                    request: {
+                      callId: 'call-1',
+                      name: 'read_file',
+                      args: {},
+                    },
                     status: 'success',
                   },
                 },
@@ -239,8 +242,11 @@ describe('Response Formatting', () => {
                 {
                   kind: 'data',
                   data: {
-                    callId: 'call-2',
-                    name: 'write_file',
+                    request: {
+                      callId: 'call-2',
+                      name: 'write_file',
+                      args: {},
+                    },
                     status: 'awaiting_approval',
                   },
                 },

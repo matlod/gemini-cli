@@ -313,10 +313,9 @@ export class A2AClient {
       messageObj.contextId = contextId;
     }
 
-    // Build params
+    // Build params - taskId is already on message object, not needed here
     const params: Record<string, unknown> = {
       message: messageObj,
-      taskId,
     };
 
     // Wrap in JSON-RPC envelope
@@ -528,6 +527,7 @@ export class A2AClient {
     outcome: ToolConfirmationOutcome,
     contextId?: string,
     newContent?: string, // For modify_with_editor
+    workspacePath?: string, // Workspace for metadata
   ): Promise<A2ATaskResponse[]> {
     const messageId = crypto.randomUUID();
     const requestId = crypto.randomUUID();
@@ -538,17 +538,33 @@ export class A2AClient {
     }
 
     // Build the message object with data part
-    const messageObj = {
+    // CRITICAL: taskId and contextId must be ON the message object, not at params level
+    const messageObj: Record<string, unknown> = {
       kind: 'message',
       role: 'user',
       parts: [{ kind: 'data', data }],
       messageId,
+      taskId,  // ON the message, not params!
     };
+
+    if (contextId) {
+      messageObj.contextId = contextId;  // ON the message, not params!
+    }
+
+    // Include metadata like regular messages - server may need this for execution context
+    if (workspacePath) {
+      messageObj.metadata = {
+        coderAgent: {
+          kind: 'agent-settings',
+          workspacePath,
+          autoExecute: false, // Manual confirmation = not auto-executing
+        },
+      };
+    }
 
     // Build params
     const params: Record<string, unknown> = {
       message: messageObj,
-      taskId,
     };
 
     // Wrap in JSON-RPC envelope
@@ -742,7 +758,18 @@ export class A2AClient {
         case 'tool-call-confirmation':
           for (const part of message.parts) {
             if (part.data && typeof part.data === 'object') {
-              const toolInfo = part.data as ToolCallInfo;
+              const rawData = part.data as Record<string, unknown>;
+              // A2A server sends: { request: { callId, name, args }, status, confirmationDetails, tool }
+              // We need to flatten this to match our ToolCallInfo interface
+              const request = rawData.request as Record<string, unknown> | undefined;
+              const toolInfo: ToolCallInfo = {
+                callId: (request?.callId as string) || (rawData.callId as string) || '',
+                name: (request?.name as string) || (rawData.name as string) || '',
+                status: rawData.status as ToolCallInfo['status'],
+                args: request?.args as Record<string, unknown>,
+                tool: rawData.tool as ToolCallInfo['tool'],
+                confirmationDetails: rawData.confirmationDetails as ToolCallInfo['confirmationDetails'],
+              };
               result.toolCalls.push(toolInfo);
               if (toolInfo.status === 'awaiting_approval') {
                 result.pendingApprovals.push(toolInfo);
