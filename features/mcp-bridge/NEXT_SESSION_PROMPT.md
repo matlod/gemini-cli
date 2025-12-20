@@ -1,97 +1,99 @@
-# Rehydration Prompt for Next Claude Session
+# Next Session Startup
 
-Copy and paste this to the new Claude session:
+Hey Claude! You're picking up an awesome project. Read these files in order:
 
----
-
-Hey Claude! You're picking up an awesome project. Read these files in order to get fully up to speed.
+1. /home/matlod1/Documents/AI/modcli/gemini-cli/features/mcp-bridge/SESSION_HANDOFF.md
+2. /home/matlod1/Documents/AI/modcli/gemini-cli/features/mcp-bridge/README.md
 
 ## The Project
 
-We built an **MCP bridge** that lets Claude Code use Gemini as a subagent/intern. You can delegate grunt work to Gemini 3.0 via MCP tools. It's working and tested!
+MCP bridge that lets Claude Code use Gemini as a subagent. 129 tests passing,
+session continuity works, per-request model selection works (flash vs pro).
 
-## Read These Files (In Order)
+## What's Working
 
-1. `/home/matlod1/Documents/AI/modcli/gemini-cli/features/mcp-bridge/SESSION_HANDOFF.md`
-   → Current state, what's done, what's next
+- 9 MCP tools exposing Gemini via MCP
+- Session continuity (pass sessionId to maintain conversation)
+- Per-request model selection: `model: "flash"` or `model: "pro"`
+- 129 tests (unit + integration) all passing
+- OAuth auth via `USE_CCPA=true`
 
-2. `/home/matlod1/Documents/AI/modcli/gemini-cli/features/mcp-bridge/MODEL_CONFIGURATION.md`
-   → Implementation plan for Flash vs Pro model selection (your next task)
+## Suggested Next Tasks
 
-3. `/home/matlod1/Documents/AI/modcli/gemini-cli/features/mcp-bridge/TESTING_SESSIONS.md`
-   → How to test session continuity
+### 1. Add model selection integration test (Quick Win)
 
-## Architecture
+Verify that requesting `flash` vs `pro` returns the correct model in response
+metadata.
 
+Location: `features/mcp-bridge/src/integration.test.ts`
+
+```typescript
+it('should use flash model when requested', async () => {
+  const events = await client.sendMessage(
+    'What is 1+1?',
+    undefined,
+    '/tmp',
+    true,
+    undefined,
+    'flash', // Request flash model
+  );
+  const parsed = client.parseEvents(events);
+  expect(parsed.model).toBe('gemini-3-flash-preview');
+});
 ```
-Claude Code ──MCP──▶ MCP Bridge ──HTTP──▶ A2A Server ──▶ Gemini 3.0
-                    (our code)      (Google's code)      (Pro/Flash)
-```
 
-## Current Status: ✅ WORKING
+### 2. Streaming support in MCP tools (Feature)
 
-- 129 tests passing
-- Session continuity works (Gemini remembers context when you pass sessionId)
-- 9 MCP tools with good descriptions
-- OAuth auth working
+`sendMessageStreaming` exists but MCP tools use non-streaming version. Could
+enable real-time progress updates.
 
-## Your Next Task: Model Selection
+### 3. Session persistence (Feature)
 
-Currently ALL requests use `gemini-3-pro-preview`. We want per-request selection:
-- **Flash** for grunt work (fast, cheap)
-- **Pro** for complex analysis (smart)
+Sessions are in-memory and lost when A2A server restarts. Could persist to disk.
 
-### Implementation (detailed in MODEL_CONFIGURATION.md):
+### 4. Better error messages (Polish)
 
-1. **A2A Server** (`packages/a2a-server/src/`):
-   - `types.ts` line 46-50: Add `model?: string` to AgentSettings interface
-   - `config/config.ts`: Update `loadConfig()` to accept model parameter
-   - `agent/executor.ts`: Pass `agentSettings.model` to loadConfig
+More actionable errors when A2A server is down, auth fails, etc.
 
-2. **MCP Bridge** (`features/mcp-bridge/src/`):
-   - `index.ts`: Add `model` param to tool schemas
-   - `a2a-client.ts`: Pass model in metadata.coderAgent
-
-3. **Test**: Restart A2A server, verify different models in responses
-
-## Quick Start Commands
+## Quick Start
 
 ```bash
-# Terminal 1: Start A2A server
 cd /home/matlod1/Documents/AI/modcli/gemini-cli/features/mcp-bridge
+
+# Terminal 1: Start A2A server
 ./start-a2a.sh
 
 # Terminal 2: Run tests
-cd /home/matlod1/Documents/AI/modcli/gemini-cli/features/mcp-bridge
-npm test  # Should show 129 passing
+npm test  # 129 tests should pass
 
-# Check current model in use
-curl -s http://localhost:41242/.well-known/agent-card.json | jq '.name'
+# Test model selection manually
+curl -s -X POST http://localhost:41242/ \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":"1","method":"message/stream","params":{"message":{"kind":"message","role":"user","parts":[{"kind":"text","text":"Hi"}],"messageId":"1","metadata":{"coderAgent":{"kind":"agent-settings","workspacePath":"/tmp","autoExecute":true,"model":"flash"}}}}}' \
+  | grep '"model"'
+# Should show: "model":"gemini-3-flash-preview"
 ```
 
-## Key Code Locations
+## Key Architecture Note
 
-| What | Where |
-|------|-------|
-| MCP tools | `features/mcp-bridge/src/index.ts` |
-| A2A HTTP client | `features/mcp-bridge/src/a2a-client.ts` |
-| AgentSettings type | `packages/a2a-server/src/types.ts:46` |
-| Config creation | `packages/a2a-server/src/config/config.ts` |
-| Task executor | `packages/a2a-server/src/agent/executor.ts` |
-| Model constants | `packages/core/src/config/models.ts` |
+Metadata (including model) must be on the **message object**, not
+`params.metadata`:
 
-## Session Continuity (Already Working)
+```typescript
+// CORRECT - executor receives this
+params: {
+  message: {
+    ...
+    metadata: { coderAgent: { model: "flash", ... } }
+  }
+}
 
-- **Omit sessionId** → Fresh session, no memory
-- **Pass sessionId** → Gemini remembers prior context
-- The fix: `taskId` must be on `message` object, not in `params` root
-
-## Working Directory
-
+// WRONG - executor never sees this
+params: {
+  metadata: { ... },  // Ignored!
+  message: { ... }
+}
 ```
+
+Working directory:
 /home/matlod1/Documents/AI/modcli/gemini-cli/features/mcp-bridge
-```
-
----
-
-Thanks past me for the great docs! Let's implement model selection.
