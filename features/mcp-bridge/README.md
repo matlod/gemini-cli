@@ -1,6 +1,7 @@
 # MCP Bridge for Gemini CLI
 
-Exposes Gemini CLI's A2A server as an MCP server for Claude Code. Use Gemini as your "intern" for grunt work or as a "senior peer" for second opinions.
+Exposes Gemini CLI's A2A server as an MCP server for Claude Code. Use Gemini as
+your "intern" for grunt work or as a "senior peer" for second opinions.
 
 ## Architecture
 
@@ -10,7 +11,8 @@ Claude Code ──MCP (stdio)──▶ MCP Bridge ──HTTP──▶ A2A Server
                                                    a2a-server/)
 ```
 
-The A2A server (`packages/a2a-server/`) handles all Gemini interaction. This bridge translates MCP ↔ A2A.
+The A2A server (`packages/a2a-server/`) handles all Gemini interaction. This
+bridge translates MCP ↔ A2A.
 
 ## Quick Start
 
@@ -40,7 +42,8 @@ npm run cli
 CODER_AGENT_PORT=41242 USE_CCPA=true npm run start -w packages/a2a-server
 ```
 
-**Important:** Keep this terminal running. The A2A server must be running for the MCP bridge to work.
+**Important:** Keep this terminal running. The A2A server must be running for
+the MCP bridge to work.
 
 ### Step 4: Configure Claude Code
 
@@ -74,30 +77,32 @@ Restart Claude Code to pick up the new MCP server configuration.
 ### Step 6: Verify
 
 In Claude Code, the Gemini tools should now be available. Test with:
+
 - `gemini_get_agent_capabilities_and_version` - Should return agent info
 
 ## Environment Variables
 
 ### A2A Server
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `CODER_AGENT_PORT` | `0` (random) | Fixed port for A2A server |
-| `USE_CCPA` | - | Use OAuth credentials from CLI login |
-| `GEMINI_API_KEY` | - | Alternative: use API key instead of OAuth |
+| Variable           | Default      | Description                               |
+| ------------------ | ------------ | ----------------------------------------- |
+| `CODER_AGENT_PORT` | `0` (random) | Fixed port for A2A server                 |
+| `USE_CCPA`         | -            | Use OAuth credentials from CLI login      |
+| `GEMINI_API_KEY`   | -            | Alternative: use API key instead of OAuth |
 
 ### MCP Bridge
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `A2A_SERVER_URL` | `http://localhost:41242` | A2A server endpoint |
-| `GEMINI_WORKSPACE` | Current directory | Default workspace for tasks |
+| Variable           | Default                  | Description                 |
+| ------------------ | ------------------------ | --------------------------- |
+| `A2A_SERVER_URL`   | `http://localhost:41242` | A2A server endpoint         |
+| `GEMINI_WORKSPACE` | Current directory        | Default workspace for tasks |
 
 ## Tools
 
 ### Core Task Management
 
 #### `gemini_delegate_task_to_assistant`
+
 Send a task to Gemini. Returns response with any pending tool approvals.
 
 ```
@@ -105,11 +110,13 @@ gemini_delegate_task_to_assistant(
   task: "Find all auth files and summarize",
   workspace: "/project",      # optional
   autoExecute: false,         # YOLO mode
-  sessionId: "abc"            # continue session
+  sessionId: "abc",           # continue session
+  model: "flash"              # "flash" (default) or "pro"
 )
 ```
 
 #### `gemini_approve_or_deny_pending_action`
+
 Respond to pending tool confirmations.
 
 ```
@@ -122,6 +129,7 @@ gemini_approve_or_deny_pending_action(
 ```
 
 **Decisions:**
+
 - `approve` - Execute once
 - `deny` - Don't execute
 - `trust_always` - Trust all future calls
@@ -130,29 +138,35 @@ gemini_approve_or_deny_pending_action(
 - `edit` - Modify file content before saving
 
 #### `gemini_check_task_progress_and_status`
+
 Get task status including available tools and MCP servers.
 
 #### `gemini_cancel_running_task`
+
 Cancel a running task.
 
 #### `gemini_list_all_active_sessions`
+
 List all active Gemini sessions.
 
 ### Consultation
 
 #### `gemini_quick_consultation_for_second_opinion`
+
 Quick sync consultation with Gemini (auto-execute mode).
 
 ```
 gemini_quick_consultation_for_second_opinion(
   question: "Review this plan, any gaps?",
-  context: "<plan details>"
+  context: "<plan details>",
+  model: "pro"                # "pro" (default) or "flash"
 )
 ```
 
 ### CLI Commands
 
 #### `gemini_execute_cli_command`
+
 Execute Gemini CLI commands.
 
 ```
@@ -163,28 +177,36 @@ gemini_execute_cli_command(command: "extensions", args: ["list"])
 ```
 
 #### `gemini_list_available_cli_commands`
+
 List available CLI commands.
 
 ### Discovery
 
 #### `gemini_get_agent_capabilities_and_version`
-Get Gemini agent capabilities, skills, and version. Good for testing connectivity.
+
+Get Gemini agent capabilities, skills, and version. Good for testing
+connectivity.
 
 ## Use Cases
 
-| Pattern | Model | Mode | Example |
-|---------|-------|------|---------|
-| Grunt work | Flash* | Async | Generate test fixtures |
-| Context gathering | Flash* | Async | Find relevant files |
-| Plan review | Pro* | Sync | Review implementation plan |
-| Code review | Pro* | Sync | Check for bugs |
-| Project init | - | Command | Create GEMINI.md |
+| Pattern           | Model   | Mode    | Example                    |
+| ----------------- | ------- | ------- | -------------------------- |
+| Grunt work        | `flash` | Async   | Generate test fixtures     |
+| Context gathering | `flash` | Async   | Find relevant files        |
+| Plan review       | `pro`   | Sync    | Review implementation plan |
+| Code review       | `pro`   | Sync    | Check for bugs             |
+| Project init      | -       | Command | Create GEMINI.md           |
 
-*Note: Model selection is currently based on server settings (`~/.gemini/settings.json` → `general.previewFeatures`). Per-request model selection requires A2A server modification. See [MODEL_CONFIGURATION.md](./MODEL_CONFIGURATION.md).
+**Model Selection:** Pass `model: "flash"` or `model: "pro"` to select the model
+per-request:
+
+- `flash` → `gemini-3-flash-preview` (fast, cheap - default for delegation)
+- `pro` → `gemini-3-pro-preview` (smart - default for consultation)
 
 ## Response Format
 
 Responses include:
+
 - Session ID and state
 - Gemini's thoughts (reasoning)
 - Text content
@@ -196,18 +218,23 @@ Responses include:
 ## Troubleshooting
 
 ### "A2A server not reachable"
+
 Start the A2A server:
+
 ```bash
 CODER_AGENT_PORT=41242 USE_CCPA=true npm run start -w packages/a2a-server
 ```
 
 ### "Please provide a GEMINI_API_KEY or set USE_CCPA"
+
 You haven't logged in yet. Run `npm run cli` and complete OAuth.
 
 ### "Session not found"
+
 Sessions are in-memory. Restarting A2A server clears them.
 
 ### MCP server not appearing in Claude Code
+
 1. Check `~/.claude/settings.json` has correct path
 2. Restart Claude Code
 3. Check A2A server is running on port 41242
