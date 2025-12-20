@@ -143,7 +143,10 @@ Track API usage, implement backoff.
 
 ## MCP Configuration
 
-Location: `~/.claude/settings.json`
+**Important:** MCP servers go in `.mcp.json`, NOT `settings.json`!
+
+**Project-scoped** (preferred):
+`/home/matlod1/Documents/AI/modcli/gemini-cli/.mcp.json`
 
 ```json
 {
@@ -161,18 +164,28 @@ Location: `~/.claude/settings.json`
 }
 ```
 
-**Important:** After changes, must restart Claude Code completely (not just
-`/clear` or resume).
+**Alternative** (CLI command):
+
+```bash
+claude mcp add gemini --scope project -- node /path/to/dist/index.js -e A2A_SERVER_URL=http://localhost:41242
+```
+
+**Alternative** (global): `claude mcp add gemini --scope user -- ...`
+
+**After changes:** Restart Claude Code completely (not just `/clear` or resume).
+
+**Verify:** Run `/mcp` in Claude Code to see registered servers.
 
 ## Common Issues
 
-| Symptom                    | Cause                     | Fix                         |
-| -------------------------- | ------------------------- | --------------------------- |
-| MCP tools not appearing    | Claude Code not restarted | Exit and relaunch `claude`  |
-| "A2A server not reachable" | Server not running        | Start with command above    |
-| Session not found          | Server restarted          | Sessions are in-memory      |
-| Gemini doesn't remember    | taskId not on message     | Check a2a-client.ts:368     |
-| Wrong model used           | metadata not on message   | Check a2a-client.ts:377-388 |
+| Symptom                    | Cause                     | Fix                                  |
+| -------------------------- | ------------------------- | ------------------------------------ |
+| MCP tools not appearing    | Claude Code not restarted | Exit and relaunch `claude`           |
+| MCP tools not appearing    | Wrong config file         | Use `.mcp.json`, NOT `settings.json` |
+| "A2A server not reachable" | Server not running        | Start with command above             |
+| Session not found          | Server restarted          | Sessions are in-memory               |
+| Gemini doesn't remember    | taskId not on message     | Check a2a-client.ts:368              |
+| Wrong model used           | metadata not on message   | Check a2a-client.ts:377-388          |
 
 ## Key Files Quick Reference
 
@@ -182,10 +195,12 @@ Location: `~/.claude/settings.json`
 | `src/a2a-client.ts`       | A2A HTTP client    | 347-414 (sendMessage)              |
 | `src/integration.test.ts` | Real API tests     | Model selection tests at 131-168   |
 
-## This Session's Work (2024-12-19)
+## Recent Work (2024-12-19)
 
 1. Added integration tests for model selection (flash/pro verification)
 2. Implemented MCP progress notifications (streaming status updates)
-3. Updated all documentation
+3. Fixed MCP config: use `.mcp.json` (NOT `settings.json`) for MCP servers
+4. Created project-scoped `.mcp.json` for MCP server config
+5. Updated all documentation
 
 Total: 141 tests passing, all features working.

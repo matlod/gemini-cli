@@ -47,14 +47,17 @@ the MCP bridge to work.
 
 ### Step 4: Configure Claude Code
 
-Copy the example settings file and customize:
+**Important:** MCP servers go in `.mcp.json`, NOT `settings.json`!
+
+**Option A: CLI command (recommended)**
 
 ```bash
-cp .claude/settings.json.example ~/.claude/settings.json
-# Edit ~/.claude/settings.json and replace the path placeholder
+claude mcp add gemini --scope project -- node /YOUR/PATH/TO/gemini-cli/features/mcp-bridge/dist/index.js -e A2A_SERVER_URL=http://localhost:41242
 ```
 
-Or manually add to `~/.claude/settings.json`:
+**Option B: Manual `.mcp.json` file**
+
+Create `.mcp.json` in your project root (or `~/.mcp.json` for global):
 
 ```json
 {
@@ -235,9 +238,11 @@ Sessions are in-memory. Restarting A2A server clears them.
 
 ### MCP server not appearing in Claude Code
 
-1. Check `~/.claude/settings.json` has correct path
-2. Restart Claude Code
-3. Check A2A server is running on port 41242
+1. **Use `.mcp.json`, NOT `settings.json`** - MCP servers have their own config
+   file
+2. Verify with `claude mcp list` or `/mcp` in Claude Code
+3. Restart Claude Code completely
+4. Check A2A server is running on port 41242
 
 ## Development
 

@@ -119,7 +119,9 @@ Progress messages: `Gemini is working...`, `Thinking: <subject>`,
 
 ## MCP Server Configuration
 
-In `~/.claude/settings.json`:
+**Important:** MCP servers go in `.mcp.json`, NOT `settings.json`!
+
+**Project-scoped** (preferred): `gemini-cli/.mcp.json`
 
 ```json
 {
@@ -136,6 +138,16 @@ In `~/.claude/settings.json`:
   }
 }
 ```
+
+**Alternative** (CLI command):
+
+```bash
+claude mcp add gemini --scope project -- node /path/to/dist/index.js -e A2A_SERVER_URL=http://localhost:41242
+```
+
+**Alternative** (global): `claude mcp add gemini --scope user -- ...`
+
+**Verify:** Run `/mcp` in Claude Code to see registered servers.
 
 ## Test Commands
 
@@ -161,6 +173,7 @@ npm run build
 | Issue                      | Solution                                        |
 | -------------------------- | ----------------------------------------------- |
 | MCP tools not appearing    | Restart Claude Code completely (not resume)     |
+| MCP tools not appearing    | Use `.mcp.json`, NOT `settings.json`            |
 | "A2A server not reachable" | Start A2A server on port 41242                  |
 | Session not found          | Sessions are in-memory, lost on A2A restart     |
 | Model not switching        | Check metadata is on message object, not params |
