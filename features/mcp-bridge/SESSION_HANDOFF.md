@@ -1,138 +1,184 @@
 # Session Handoff - MCP Bridge for Gemini CLI
 
-**Date:** 2024-12-20 **Status:** ✅ WORKING - 129 tests passing, session
-continuity verified, per-request model selection working
+**Date:** 2024-12-19 **Status:** ✅ WORKING - 141 tests passing, all features
+implemented
 
 ## Quick Resume
 
 ```bash
-# 1. Start A2A server
-cp start-a2a.sh.example start-a2a.sh  # Edit path first
-./start-a2a.sh
+# 1. Start A2A server (in separate terminal)
+cd /home/matlod1/Documents/AI/modcli/gemini-cli
+CODER_AGENT_PORT=41242 USE_CCPA=true npm run start -w packages/a2a-server
 
 # 2. Run tests
-cd features/mcp-bridge && npm test
+cd features/mcp-bridge && npm test  # 141 tests
 
-# 3. Restart Claude Code to pick up MCP server
+# 3. Rebuild if needed
+npm run build
+
+# 4. Restart Claude Code to pick up MCP server
 ```
 
 ## What's Working ✅
 
-- **MCP Bridge** - 9 tools exposing Gemini via MCP
-- **Session Continuity** - Pass sessionId to maintain conversation memory
-- **Per-Request Model Selection** - Choose `flash` or `pro` per request
-- **129 Tests** - Unit + integration tests all passing
-- **OAuth Auth** - Working via `USE_CCPA=true`
-- **JSON-RPC Format** - Proper envelope with `method: "message/stream"`
+| Feature                     | Status | Notes                                           |
+| --------------------------- | ------ | ----------------------------------------------- |
+| MCP Bridge                  | ✅     | 9 tools exposing Gemini via MCP                 |
+| Session Continuity          | ✅     | Pass sessionId to maintain conversation memory  |
+| Per-Request Model Selection | ✅     | `model: "flash"` or `model: "pro"`              |
+| MCP Progress Notifications  | ✅     | Real-time status during task execution          |
+| Integration Tests           | ✅     | Model selection verified with real API          |
+| OAuth Auth                  | ✅     | Working via `USE_CCPA=true`                     |
+| JSON-RPC Format             | ✅     | Proper envelope with `method: "message/stream"` |
 
-## Critical Fixes Applied This Session
+## Architecture
 
-### Fix 1: JSON-RPC Envelope
-
-A2A server expects requests wrapped in JSON-RPC format.
-
-### Fix 2: Session Continuity (taskId placement)
-
-**Problem:** Gemini didn't remember context between messages.
-
-**Root Cause:** taskId was in `params.taskId` but SDK expects `message.taskId`.
-
-**Solution in `a2a-client.ts`:**
-
-```typescript
-// WRONG:
-params.taskId = taskId;
-
-// CORRECT:
-messageObj.taskId = taskId;
-messageObj.contextId = contextId;
 ```
-
-**Verified:** Tested manually - Gemini remembers "ELEPHANT" across messages in
-same session.
-
-## Session Management
-
-| Scenario              | sessionId        | Result                   |
-| --------------------- | ---------------- | ------------------------ |
-| New independent task  | Omit             | Fresh session, no memory |
-| Continue conversation | Pass previous ID | Gemini remembers context |
-| Quick consultation    | N/A (stateless)  | Always fresh             |
+Claude Code ──MCP (stdio)──▶ MCP Bridge ──HTTP──▶ A2A Server ──▶ Gemini API
+                             (this pkg)           (packages/     (Pro/Flash)
+                                                   a2a-server/)
+```
 
 ## Files Structure
 
 ```
 features/mcp-bridge/
 ├── src/
-│   ├── index.ts              # MCP server, 9 tools
-│   ├── a2a-client.ts         # HTTP client (session fix here)
-│   ├── *.test.ts             # 129 tests
+│   ├── index.ts              # MCP server, 9 tools, progress notifications
+│   ├── a2a-client.ts         # HTTP client for A2A protocol
+│   ├── index.test.ts         # 45 unit tests
+│   ├── integration.test.ts   # 7 integration tests (real API)
+│   ├── a2a-client.test.ts    # 28 client tests
+│   ├── mcp-tools.test.ts     # 30 tool tests
+│   └── scenarios.test.ts     # 31 scenario tests
+├── dist/                     # Compiled output
 ├── test-outputs/             # Captured real responses (gitignored)
 ├── start-a2a.sh.example      # Template script
-├── .gitignore
 ├── README.md                 # Setup guide
-├── TESTING_SESSIONS.md       # Session testing guide
+├── SESSION_HANDOFF.md        # This file
+├── NEXT_SESSION_PROMPT.md    # Quick start for new sessions
+├── STREAMING_PROGRESS.md     # Progress notification implementation
+├── TESTING_SESSIONS.md       # Session testing with curl examples
 ├── MODEL_CONFIGURATION.md    # Model selection analysis
-├── AUTHENTICATION.md         # OAuth docs
-└── SESSION_HANDOFF.md        # This file
+└── AUTHENTICATION.md         # OAuth docs
 ```
 
-## Model Selection (Implemented)
+## Key Implementation Details
 
-Per-request model selection is now working:
+### Session Continuity
+
+**Critical:** taskId and contextId must be on the **message object**, not
+params:
+
+```typescript
+// CORRECT - A2A SDK passes this to executor
+const messageObj = {
+  kind: 'message',
+  role: 'user',
+  parts: [...],
+  messageId,
+  taskId,      // ON message object
+  contextId,   // ON message object
+  metadata: {  // ON message object
+    coderAgent: { model: 'flash', ... }
+  }
+};
+```
+
+### Model Selection
 
 ```typescript
 // Grunt work - uses gemini-3-flash-preview
-gemini_delegate_task_to_assistant({
-  task: 'Find all TODO comments',
-  model: 'flash', // default
-});
+gemini_delegate_task_to_assistant({ task: '...', model: 'flash' });
 
 // Complex reasoning - uses gemini-3-pro-preview
-gemini_delegate_task_to_assistant({
-  task: 'Review this architecture',
-  model: 'pro',
-});
+gemini_delegate_task_to_assistant({ task: '...', model: 'pro' });
 
 // Consultation defaults to pro
-gemini_quick_consultation_for_second_opinion({
-  question: 'Is this approach correct?',
-});
+gemini_quick_consultation_for_second_opinion({ question: '...' });
 ```
 
-**Key Fix:** Metadata must be on the **message object** itself (like
-taskId/contextId), not on `params.metadata`. The A2A SDK only passes
-`message.metadata` to the executor.
+### Progress Notifications
 
-**Files Changed:**
+When Claude Code provides `progressToken`, the bridge streams updates:
 
-- `packages/a2a-server/src/types.ts` - Added `model?: string` to AgentSettings
-- `packages/a2a-server/src/config/config.ts` - Uses `resolveModel()` with
-  requestedModel param
-- `packages/a2a-server/src/agent/executor.ts` - Passes `agentSettings.model` to
-  loadConfig
-- `features/mcp-bridge/src/index.ts` - Added model param to tool schemas
-- `features/mcp-bridge/src/a2a-client.ts` - Put metadata on
-  `messageObj.metadata`
+```typescript
+// In tool handler
+const progressToken = request.params._meta?.progressToken;
+
+if (progressToken) {
+  await a2aClient.sendMessageStreaming(task, (event) => {
+    const message = getProgressMessage(event);
+    if (message) sendProgress(progressToken, count++, undefined, message);
+  }, ...);
+}
+```
+
+Progress messages: `Gemini is working...`, `Thinking: <subject>`,
+`Tool: <name> (status)`, `Generating response...`
+
+## MCP Server Configuration
+
+In `~/.claude/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "gemini": {
+      "command": "node",
+      "args": [
+        "/home/matlod1/Documents/AI/modcli/gemini-cli/features/mcp-bridge/dist/index.js"
+      ],
+      "env": {
+        "A2A_SERVER_URL": "http://localhost:41242"
+      }
+    }
+  }
+}
+```
 
 ## Test Commands
 
 ```bash
-# Run all tests
-cd features/mcp-bridge && npm test
+# Run all tests (141 total)
+npm test
 
-# Test session continuity manually (see TESTING_SESSIONS.md)
-curl -X POST http://localhost:41242/ -d '...'
+# Run only unit tests (fast, no server needed)
+npm test -- --grep "Tool Definitions|Response Formatting|Progress"
 
-# Check current model
-grep '"model"' /tmp/first.txt
+# Run integration tests (needs A2A server running)
+npm test -- --grep "Integration"
+
+# Type check
+npx tsc --noEmit
+
+# Build
+npm run build
 ```
 
-## Key Documentation
+## Troubleshooting
+
+| Issue                      | Solution                                        |
+| -------------------------- | ----------------------------------------------- |
+| MCP tools not appearing    | Restart Claude Code completely (not resume)     |
+| "A2A server not reachable" | Start A2A server on port 41242                  |
+| Session not found          | Sessions are in-memory, lost on A2A restart     |
+| Model not switching        | Check metadata is on message object, not params |
+
+## Related Files (Outside mcp-bridge)
+
+Model selection required changes in a2a-server:
+
+- `packages/a2a-server/src/types.ts` - Added `model?: string` to AgentSettings
+- `packages/a2a-server/src/config/config.ts` - `resolveModel()` with
+  requestedModel
+- `packages/a2a-server/src/agent/executor.ts` - Passes model to loadConfig
+
+## Documentation
 
 - [README.md](./README.md) - Complete setup guide
-- [TESTING_SESSIONS.md](./TESTING_SESSIONS.md) - Session testing with curl
-  examples
-- [MODEL_CONFIGURATION.md](./MODEL_CONFIGURATION.md) - Model selection
-  implementation plan
+- [STREAMING_PROGRESS.md](./STREAMING_PROGRESS.md) - Progress notification
+  details
+- [TESTING_SESSIONS.md](./TESTING_SESSIONS.md) - Manual curl testing
+- [MODEL_CONFIGURATION.md](./MODEL_CONFIGURATION.md) - Model selection analysis
 - [AUTHENTICATION.md](./AUTHENTICATION.md) - OAuth vs API key

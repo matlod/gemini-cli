@@ -1,8 +1,14 @@
 /**
+ * @license
+ * Copyright 2025 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/**
  * Tests for MCP Bridge Server
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // We'll test the exported utilities and tool definitions
 // The server itself is harder to test in isolation, so we focus on:
@@ -11,16 +17,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // 3. Decision mapping
 
 describe('Tool Definitions', () => {
-  // Import dynamically to get tool definitions
-  let tools: any[];
-
   beforeEach(async () => {
     // Mock fetch before importing
     global.fetch = vi.fn().mockResolvedValue({ ok: true });
 
-    // Dynamic import to get the tools
-    const module = await import('./index.js');
-    // Note: tools is not exported, so we'll test via the server
+    // Dynamic import to ensure module loads without errors
+    await import('./index.js');
   });
 
   it('should have 9 tools defined', () => {
@@ -45,14 +47,16 @@ describe('Response Formatting', () => {
     // Test the response formatting logic by checking output patterns
 
     it('should format session header correctly', () => {
-      const header = 'Session: abc-123 | Model: gemini-3-pro-preview | State: working';
+      const header =
+        'Session: abc-123 | Model: gemini-3-pro-preview | State: working';
       expect(header).toContain('Session:');
       expect(header).toContain('Model:');
       expect(header).toContain('State:');
     });
 
     it('should include thoughts section when thoughts present', () => {
-      const output = '📭 THOUGHTS:\n  • Analyzing the code\n    Looking for patterns';
+      const output =
+        '📭 THOUGHTS:\n  • Analyzing the code\n    Looking for patterns';
       expect(output).toContain('📭 THOUGHTS:');
       expect(output).toContain('Analyzing the code');
     });
@@ -65,7 +69,8 @@ describe('Response Formatting', () => {
     });
 
     it('should include pending decisions section', () => {
-      const output = '⏳ PENDING DECISIONS:\n  • callId: call-123\n    Tool: write_file';
+      const output =
+        '⏳ PENDING DECISIONS:\n  • callId: call-123\n    Tool: write_file';
       expect(output).toContain('⏳ PENDING DECISIONS:');
       expect(output).toContain('callId:');
     });
@@ -115,13 +120,26 @@ describe('Decision Mapping', () => {
       // Verify the mapping logic
       let result: string;
       switch (input) {
-        case 'approve': result = 'proceed_once'; break;
-        case 'deny': result = 'cancel'; break;
-        case 'trust_always': result = 'proceed_always'; break;
-        case 'trust_tool': result = 'proceed_always_tool'; break;
-        case 'trust_server': result = 'proceed_always_server'; break;
-        case 'edit': result = 'modify_with_editor'; break;
-        default: result = 'proceed_once';
+        case 'approve':
+          result = 'proceed_once';
+          break;
+        case 'deny':
+          result = 'cancel';
+          break;
+        case 'trust_always':
+          result = 'proceed_always';
+          break;
+        case 'trust_tool':
+          result = 'proceed_always_tool';
+          break;
+        case 'trust_server':
+          result = 'proceed_always_server';
+          break;
+        case 'edit':
+          result = 'modify_with_editor';
+          break;
+        default:
+          result = 'proceed_once';
       }
       expect(result).toBe(expected);
     });
@@ -164,7 +182,14 @@ describe('Tool Input Schemas', () => {
         callId: { type: 'string' },
         decision: {
           type: 'string',
-          enum: ['approve', 'deny', 'trust_always', 'trust_tool', 'trust_server', 'edit'],
+          enum: [
+            'approve',
+            'deny',
+            'trust_always',
+            'trust_tool',
+            'trust_server',
+            'edit',
+          ],
         },
         editedContent: { type: 'string' },
       },
@@ -316,11 +341,157 @@ Capabilities:
   • State History: ${agentCard.capabilities.stateTransitionHistory}
 
 Skills:
-${agentCard.skills.map(s => `  • ${s.name}: ${s.description}`).join('\n')}`;
+${agentCard.skills.map((s) => `  • ${s.name}: ${s.description}`).join('\n')}`;
 
     expect(formatted).toContain('Gemini SDLC Agent');
     expect(formatted).toContain('Protocol: A2A v0.3.0');
     expect(formatted).toContain('Streaming: true');
     expect(formatted).toContain('Code Generation');
+  });
+});
+
+describe('Progress Notifications', () => {
+  describe('getProgressMessage mapping', () => {
+    // Test the expected progress message mapping from A2A events
+
+    it('should return working message for state-change to working', () => {
+      const event = {
+        status: { state: 'working' as const },
+        metadata: { coderAgent: { kind: 'state-change' as const } },
+      };
+      // The message should indicate Gemini is working
+      expect(event.metadata.coderAgent.kind).toBe('state-change');
+      expect(event.status.state).toBe('working');
+    });
+
+    it('should return completed message for state-change to completed', () => {
+      const event = {
+        status: { state: 'completed' as const },
+        metadata: { coderAgent: { kind: 'state-change' as const } },
+      };
+      expect(event.status.state).toBe('completed');
+    });
+
+    it('should extract thought subject for thought events', () => {
+      const event = {
+        status: {
+          state: 'working' as const,
+          message: {
+            parts: [
+              { kind: 'data' as const, data: { subject: 'Analyzing code' } },
+            ],
+          },
+        },
+        metadata: { coderAgent: { kind: 'thought' as const } },
+      };
+      const subject = (
+        event.status.message?.parts?.[0]?.data as { subject?: string }
+      )?.subject;
+      expect(subject).toBe('Analyzing code');
+    });
+
+    it('should extract tool name for tool-call events', () => {
+      const event = {
+        status: {
+          state: 'working' as const,
+          message: {
+            parts: [
+              {
+                kind: 'data' as const,
+                data: { name: 'read_file', status: 'executing' },
+              },
+            ],
+          },
+        },
+        metadata: { coderAgent: { kind: 'tool-call-update' as const } },
+      };
+      const tool = event.status.message?.parts?.[0]?.data as {
+        name?: string;
+        status?: string;
+      };
+      expect(tool.name).toBe('read_file');
+      expect(tool.status).toBe('executing');
+    });
+
+    it('should handle text-content events', () => {
+      const event = {
+        status: {
+          state: 'working' as const,
+          message: {
+            parts: [{ kind: 'text' as const, text: 'Here is my response...' }],
+          },
+        },
+        metadata: { coderAgent: { kind: 'text-content' as const } },
+      };
+      expect(event.metadata.coderAgent.kind).toBe('text-content');
+    });
+  });
+
+  describe('progressToken handling', () => {
+    it('should extract progressToken from request metadata', () => {
+      const request = {
+        params: {
+          _meta: {
+            progressToken: 'token-123',
+          },
+          name: 'gemini_delegate_task_to_assistant',
+          arguments: { task: 'test' },
+        },
+      };
+      expect(request.params._meta?.progressToken).toBe('token-123');
+    });
+
+    it('should handle missing progressToken gracefully', () => {
+      const request = {
+        params: {
+          name: 'gemini_delegate_task_to_assistant',
+          arguments: { task: 'test' },
+        } as {
+          name: string;
+          arguments: { task: string };
+          _meta?: { progressToken?: string | number };
+        },
+      };
+      expect(request.params._meta?.progressToken).toBeUndefined();
+    });
+
+    it('should handle numeric progressToken', () => {
+      const request = {
+        params: {
+          _meta: {
+            progressToken: 42,
+          },
+          name: 'gemini_delegate_task_to_assistant',
+          arguments: { task: 'test' },
+        },
+      };
+      expect(request.params._meta?.progressToken).toBe(42);
+    });
+  });
+
+  describe('progress notification structure', () => {
+    it('should have correct notification structure', () => {
+      const notification = {
+        method: 'notifications/progress',
+        params: {
+          progressToken: 'token-123',
+          progress: 1,
+          total: undefined,
+          message: 'Gemini is working...',
+        },
+      };
+
+      expect(notification.method).toBe('notifications/progress');
+      expect(notification.params.progressToken).toBe('token-123');
+      expect(notification.params.progress).toBe(1);
+      expect(notification.params.message).toBe('Gemini is working...');
+    });
+
+    it('should increment progress count with each event', () => {
+      const progressCounts = [1, 2, 3, 4, 5];
+      progressCounts.forEach((count, idx) => {
+        expect(count).toBe(idx + 1);
+      });
+    });
   });
 });

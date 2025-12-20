@@ -1,4 +1,10 @@
 /**
+ * @license
+ * Copyright 2025 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/**
  * Integration Tests for MCP Bridge
  *
  * These tests require the A2A server to be running:
@@ -11,11 +17,15 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { A2AClient } from './a2a-client.js';
-import { writeFileSync, mkdirSync, existsSync } from 'fs';
-import { join } from 'path';
+import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 const A2A_SERVER_URL = process.env.A2A_SERVER_URL || 'http://localhost:41242';
-const TEST_OUTPUTS_DIR = join(import.meta.dirname || __dirname, '..', 'test-outputs');
+const TEST_OUTPUTS_DIR = join(
+  import.meta.dirname || __dirname,
+  '..',
+  'test-outputs',
+);
 
 // Skip integration tests if server not running
 const client = new A2AClient(A2A_SERVER_URL);
@@ -26,7 +36,7 @@ function saveTestOutput(filename: string, data: unknown): void {
   }
   writeFileSync(
     join(TEST_OUTPUTS_DIR, filename),
-    JSON.stringify(data, null, 2)
+    JSON.stringify(data, null, 2),
   );
 }
 
@@ -40,7 +50,9 @@ describe('Integration Tests (requires A2A server)', () => {
     serverAvailable = await client.healthCheck();
     if (!serverAvailable) {
       console.warn('⚠️  A2A server not running - skipping integration tests');
-      console.warn('   Start with: CODER_AGENT_PORT=41242 USE_CCPA=true npm run start -w packages/a2a-server');
+      console.warn(
+        '   Start with: CODER_AGENT_PORT=41242 USE_CCPA=true npm run start -w packages/a2a-server',
+      );
     }
   });
 
@@ -58,51 +70,59 @@ describe('Integration Tests (requires A2A server)', () => {
   });
 
   describe('Simple Query', () => {
-    it('should answer a simple math question', { timeout: LLM_TIMEOUT }, async () => {
-      if (!serverAvailable) return;
+    it(
+      'should answer a simple math question',
+      { timeout: LLM_TIMEOUT },
+      async () => {
+        if (!serverAvailable) return;
 
-      const events = await client.sendMessage(
-        'What is 2+2? Answer with just the number.',
-        undefined,
-        '/tmp',
-        true // auto-execute
-      );
+        const events = await client.sendMessage(
+          'What is 2+2? Answer with just the number.',
+          undefined,
+          '/tmp',
+          true, // auto-execute
+        );
 
-      saveTestOutput('integration-simple-query.json', events);
+        saveTestOutput('integration-simple-query.json', events);
 
-      const parsed = client.parseEvents(events);
+        const parsed = client.parseEvents(events);
 
-      expect(parsed.taskId).toBeDefined();
-      expect(parsed.contextId).toBeDefined();
-      expect(parsed.model).toContain('gemini');
+        expect(parsed.taskId).toBeDefined();
+        expect(parsed.contextId).toBeDefined();
+        expect(parsed.model).toContain('gemini');
 
-      // Check that we got a text response
-      expect(parsed.textContent.length).toBeGreaterThan(0);
+        // Check that we got a text response
+        expect(parsed.textContent.length).toBeGreaterThan(0);
 
-      // The answer should contain "4"
-      const fullText = parsed.textContent.join(' ');
-      expect(fullText).toMatch(/4/);
-    });
+        // The answer should contain "4"
+        const fullText = parsed.textContent.join(' ');
+        expect(fullText).toMatch(/4/);
+      },
+    );
   });
 
   describe('Task State Transitions', () => {
-    it('should track task through states', { timeout: LLM_TIMEOUT }, async () => {
-      if (!serverAvailable) return;
+    it(
+      'should track task through states',
+      { timeout: LLM_TIMEOUT },
+      async () => {
+        if (!serverAvailable) return;
 
-      const events = await client.sendMessage(
-        'Say hello in one word.',
-        undefined,
-        '/tmp',
-        true
-      );
+        const events = await client.sendMessage(
+          'Say hello in one word.',
+          undefined,
+          '/tmp',
+          true,
+        );
 
-      saveTestOutput('integration-state-transitions.json', events);
+        saveTestOutput('integration-state-transitions.json', events);
 
-      // Should have multiple states
-      const states = events.map(e => e.status?.state).filter(Boolean);
-      expect(states).toContain('submitted');
-      expect(states).toContain('working');
-    });
+        // Should have multiple states
+        const states = events.map((e) => e.status?.state).filter(Boolean);
+        expect(states).toContain('submitted');
+        expect(states).toContain('working');
+      },
+    );
   });
 
   describe('Thoughts Extraction', () => {
@@ -113,7 +133,7 @@ describe('Integration Tests (requires A2A server)', () => {
         'Explain briefly why the sky is blue.',
         undefined,
         '/tmp',
-        true
+        true,
       );
 
       saveTestOutput('integration-thoughts.json', events);
@@ -128,53 +148,107 @@ describe('Integration Tests (requires A2A server)', () => {
     });
   });
 
+  describe('Model Selection', () => {
+    it(
+      'should use gemini-3-flash-preview when model=flash',
+      { timeout: LLM_TIMEOUT },
+      async () => {
+        if (!serverAvailable) return;
+
+        const events = await client.sendMessage(
+          'Say "hello" and nothing else.',
+          undefined, // taskId
+          '/tmp', // workspacePath
+          true, // autoExecute
+          undefined, // contextId
+          'flash', // model
+        );
+
+        saveTestOutput('integration-model-flash.json', events);
+
+        const parsed = client.parseEvents(events);
+
+        expect(parsed.model).toBe('gemini-3-flash-preview');
+      },
+    );
+
+    it(
+      'should use gemini-3-pro-preview when model=pro',
+      { timeout: LLM_TIMEOUT },
+      async () => {
+        if (!serverAvailable) return;
+
+        const events = await client.sendMessage(
+          'Say "hello" and nothing else.',
+          undefined, // taskId
+          '/tmp', // workspacePath
+          true, // autoExecute
+          undefined, // contextId
+          'pro', // model
+        );
+
+        saveTestOutput('integration-model-pro.json', events);
+
+        const parsed = client.parseEvents(events);
+
+        expect(parsed.model).toBe('gemini-3-pro-preview');
+      },
+    );
+  });
+
   describe('Session Continuity', () => {
-    it('should continue conversation with same taskId', { timeout: LLM_TIMEOUT }, async () => {
-      if (!serverAvailable) return;
+    it(
+      'should continue conversation with same taskId',
+      { timeout: LLM_TIMEOUT },
+      async () => {
+        if (!serverAvailable) return;
 
-      // First message - simple, no tool use expected
-      const events1 = await client.sendMessage(
-        'Say the word "blue" and nothing else.',
-        undefined,
-        '/tmp',
-        true
-      );
+        // First message - simple, no tool use expected
+        const events1 = await client.sendMessage(
+          'Say the word "blue" and nothing else.',
+          undefined,
+          '/tmp',
+          true,
+        );
 
-      const parsed1 = client.parseEvents(events1);
-      const taskId = parsed1.taskId;
+        const parsed1 = client.parseEvents(events1);
+        const taskId = parsed1.taskId;
 
-      expect(taskId).toBeDefined();
-      saveTestOutput('integration-session-first.json', events1);
+        expect(taskId).toBeDefined();
+        saveTestOutput('integration-session-first.json', events1);
 
-      // If first message is waiting for input, skip continuation test
-      if (parsed1.taskState === 'input-required') {
-        console.log('⚠ First message waiting for tool approval - skipping session test');
-        return;
-      }
+        // If first message is waiting for input, skip continuation test
+        if (parsed1.taskState === 'input-required') {
+          console.log(
+            '⚠ First message waiting for tool approval - skipping session test',
+          );
+          return;
+        }
 
-      // Continue in same session - verify same taskId is used
-      const events2 = await client.sendMessage(
-        'What word did you just say? One word answer.',
-        taskId!, // Continue session with same taskId
-        '/tmp',
-        true
-      );
+        // Continue in same session - verify same taskId is used
+        const events2 = await client.sendMessage(
+          'What word did you just say? One word answer.',
+          taskId!, // Continue session with same taskId
+          '/tmp',
+          true,
+        );
 
-      saveTestOutput('integration-session-second.json', events2);
+        saveTestOutput('integration-session-second.json', events2);
 
-      const parsed2 = client.parseEvents(events2);
+        const parsed2 = client.parseEvents(events2);
 
-      // Verify the response came back
-      expect(parsed2.textContent.length).toBeGreaterThan(0);
+        // Verify the response came back
+        expect(parsed2.textContent.length).toBeGreaterThan(0);
 
-      // If context is preserved, response should mention blue
-      const response = parsed2.textContent.join(' ').toLowerCase();
-      if (response.includes('blue')) {
-        console.log('✓ Session context preserved - Gemini remembered "blue"');
-      } else {
-        console.log('⚠ Response:', response.slice(0, 100));
-      }
-    });
+        // If context is preserved, response should mention blue
+        const response = parsed2.textContent.join(' ').toLowerCase();
+        if (response.includes('blue')) {
+          console.log('✓ Session context preserved - Gemini remembered "blue"');
+        } else {
+          console.log('⚠ Response:', response.slice(0, 100));
+        }
+      },
+    );
   });
 });
 
@@ -231,13 +305,15 @@ export const REAL_RESPONSE_STRUCTURES = {
       message: {
         kind: 'message',
         role: 'agent',
-        parts: [{
-          kind: 'data',
-          data: {
-            subject: 'Analysis Subject',
-            description: 'Detailed thought description...',
+        parts: [
+          {
+            kind: 'data',
+            data: {
+              subject: 'Analysis Subject',
+              description: 'Detailed thought description...',
+            },
           },
-        }],
+        ],
         messageId: 'uuid-message-id',
         taskId: 'uuid-task-id',
         contextId: 'uuid-context-id',
@@ -287,33 +363,35 @@ export const REAL_RESPONSE_STRUCTURES = {
       message: {
         kind: 'message',
         role: 'agent',
-        parts: [{
-          kind: 'data',
-          data: {
-            request: {
-              callId: 'tool_name-timestamp-random',
-              name: 'run_shell_command',
-              args: { command: 'ls' },
-              isClientInitiated: false,
-              prompt_id: 'task-id########0',
-              traceId: 'hex-trace-id',
-            },
-            status: 'awaiting_approval',
-            confirmationDetails: {
-              type: 'exec',
-              title: 'Confirm Shell Command',
-              command: 'ls',
-              rootCommand: 'ls',
-            },
-            tool: {
-              name: 'run_shell_command',
-              displayName: 'Shell',
-              description: 'Tool description...',
-              kind: 'execute',
-              // ... more tool metadata
+        parts: [
+          {
+            kind: 'data',
+            data: {
+              request: {
+                callId: 'tool_name-timestamp-random',
+                name: 'run_shell_command',
+                args: { command: 'ls' },
+                isClientInitiated: false,
+                prompt_id: 'task-id########0',
+                traceId: 'hex-trace-id',
+              },
+              status: 'awaiting_approval',
+              confirmationDetails: {
+                type: 'exec',
+                title: 'Confirm Shell Command',
+                command: 'ls',
+                rootCommand: 'ls',
+              },
+              tool: {
+                name: 'run_shell_command',
+                displayName: 'Shell',
+                description: 'Tool description...',
+                kind: 'execute',
+                // ... more tool metadata
+              },
             },
           },
-        }],
+        ],
         messageId: 'uuid-message-id',
         taskId: 'uuid-task-id',
         contextId: 'uuid-context-id',

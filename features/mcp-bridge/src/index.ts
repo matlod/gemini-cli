@@ -19,6 +19,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
   type Tool,
+  type ProgressNotification,
 } from '@modelcontextprotocol/sdk/types.js';
 import {
   A2AClient,
@@ -529,6 +530,72 @@ function mapDecision(decision: string): ToolConfirmationOutcome {
 }
 
 // ============================================================================
+// Progress Notification Helpers
+// ============================================================================
+
+// Server reference for progress notifications (set after server creation)
+let serverInstance: Server | null = null;
+
+/**
+ * Send a progress notification if progressToken is available
+ */
+async function sendProgress(
+  progressToken: string | number | undefined,
+  progress: number,
+  total: number | undefined,
+  message: string,
+): Promise<void> {
+  if (!progressToken || !serverInstance) return;
+
+  try {
+    await serverInstance.notification({
+      method: 'notifications/progress',
+      params: {
+        progressToken,
+        progress,
+        total,
+        message,
+      },
+    } as ProgressNotification);
+  } catch {
+    // Ignore notification errors - don't break the main flow
+  }
+}
+
+/**
+ * Convert A2A events to user-friendly progress messages
+ */
+function getProgressMessage(event: A2ATaskResponse): string | null {
+  const kind = event.metadata?.coderAgent?.kind;
+
+  switch (kind) {
+    case 'state-change':
+      if (event.status?.state === 'working') return 'Gemini is working...';
+      if (event.status?.state === 'completed') return 'Task completed';
+      break;
+    case 'thought': {
+      const thought = event.status?.message?.parts?.[0]?.data as {
+        subject?: string;
+      };
+      if (thought?.subject) return `Thinking: ${thought.subject}`;
+      return 'Gemini is thinking...';
+    }
+    case 'tool-call-confirmation':
+    case 'tool-call-update': {
+      const tool = event.status?.message?.parts?.[0]?.data as {
+        name?: string;
+        status?: string;
+      };
+      if (tool?.name) return `Tool: ${tool.name} (${tool.status || 'pending'})`;
+      break;
+    }
+    case 'text-content':
+      return 'Generating response...';
+  }
+  return null;
+}
+
+// ============================================================================
 // MCP Server Setup
 // ============================================================================
 
@@ -543,6 +610,9 @@ const server = new Server(
     },
   },
 );
+
+// Set server instance for progress notifications
+serverInstance = server;
 
 // Handle tool listing
 server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -580,18 +650,47 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const existingSessionId = args?.sessionId as string | undefined;
         const model = (args?.model as string) || 'flash';
 
+        // Get progressToken from request metadata for streaming progress
+        const progressToken = request.params._meta?.progressToken;
+
         const session = existingSessionId
           ? sessions.get(existingSessionId)
           : undefined;
 
-        const events = await a2aClient.sendMessage(
-          task,
-          session?.taskId,
-          workspace,
-          autoExecute,
-          session?.contextId,
-          model,
-        );
+        let events: A2ATaskResponse[];
+
+        if (progressToken) {
+          // Use streaming with progress notifications
+          events = [];
+          let progressCount = 0;
+
+          await a2aClient.sendMessageStreaming(
+            task,
+            (event) => {
+              events.push(event);
+              const message = getProgressMessage(event);
+              if (message) {
+                progressCount++;
+                sendProgress(progressToken, progressCount, undefined, message);
+              }
+            },
+            session?.taskId,
+            workspace,
+            autoExecute,
+            session?.contextId,
+            model,
+          );
+        } else {
+          // Non-streaming (original behavior)
+          events = await a2aClient.sendMessage(
+            task,
+            session?.taskId,
+            workspace,
+            autoExecute,
+            session?.contextId,
+            model,
+          );
+        }
 
         const parsed = a2aClient.parseEvents(events);
 
