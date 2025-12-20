@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { A2AClient, type A2ATaskResponse, type ParsedEvents } from './a2a-client.js';
+import { A2AClient, type A2ATaskResponse } from './a2a-client.js';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -117,7 +117,7 @@ describe('A2AClient', () => {
       expect(body.params.metadata.coderAgent.workspacePath).toBe('/workspace');
     });
 
-    it('should include taskId when provided', async () => {
+    it('should include taskId on message object when provided', async () => {
       const mockSSE = 'data: {"jsonrpc":"2.0","id":"1","result":{}}\n\n';
 
       mockFetch.mockResolvedValueOnce({
@@ -128,7 +128,8 @@ describe('A2AClient', () => {
       await client.sendMessage('Continue', 'task-123', '/workspace');
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(body.params.taskId).toBe('task-123');
+      // taskId must be on the message object for SDK session continuity
+      expect(body.params.message.taskId).toBe('task-123');
     });
 
     it('should set autoExecute in metadata', async () => {
@@ -448,7 +449,7 @@ describe('A2AClient', () => {
         json: () => Promise.resolve(mockResult),
       });
 
-      const result = await client.executeCommand('restore', ['checkpoint-1'], '/workspace');
+      const result = await client.executeCommand('restore', ['checkpoint-1']);
 
       expect(mockFetch).toHaveBeenCalledWith(
         'http://localhost:41242/executeCommand',
@@ -457,7 +458,6 @@ describe('A2AClient', () => {
           body: JSON.stringify({
             command: 'restore',
             args: ['checkpoint-1'],
-            workspacePath: '/workspace',
           }),
         })
       );

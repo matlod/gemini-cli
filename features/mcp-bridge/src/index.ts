@@ -48,15 +48,24 @@ const tools: Tool[] = [
     name: 'gemini_delegate_task_to_assistant',
     description: `Delegate a task to Gemini AI to work on asynchronously. Use Gemini as your "intern" or assistant for grunt work.
 
-PURPOSE: Offload time-consuming or repetitive tasks to Gemini while you continue other work. Gemini (powered by Gemini 3.0 Flash) excels at:
+PURPOSE: Offload time-consuming or repetitive tasks to Gemini while you continue other work. Gemini (powered by Gemini 3.0 Pro) excels at:
 - Searching and analyzing large codebases ("Find all files related to authentication")
 - Generating boilerplate or test data ("Create 20 test fixtures for the User model")
 - Bulk operations ("Add TypeScript types to all functions in src/utils/")
 - Initial code reviews ("Look for obvious bugs in these files")
 - Research tasks ("Summarize how error handling works in this project")
 
+SESSION MANAGEMENT - IMPORTANT:
+- OMIT sessionId: Start a FRESH session with no memory of previous conversations. Use for independent tasks.
+- INCLUDE sessionId: CONTINUE an existing session. Gemini remembers all prior context from that session.
+
+When to use sessions:
+- Multi-step tasks: "Find the bug" → pass sessionId → "Now fix it" → pass sessionId → "Write a test"
+- Iterative refinement: "Generate code" → "Make it async" → "Add error handling" (all same session)
+- Fresh start: Omit sessionId when you want Gemini to approach something without prior assumptions
+
 WORKFLOW:
-1. Call this tool with your task description
+1. Call this tool with your task description (omit sessionId for new task, include for continuation)
 2. Gemini works on it and may request approvals for file edits, shell commands, etc.
 3. If approvals are pending, use 'gemini_approve_or_deny_pending_action' to respond
 4. Check progress with 'gemini_check_task_progress_and_status' if needed
@@ -66,7 +75,7 @@ WHEN TO USE vs gemini_quick_consultation_for_second_opinion:
 - Use THIS tool for tasks that require Gemini to DO something (search, edit, generate)
 - Use consultation tool for quick questions where you just want Gemini's OPINION
 
-Returns: Session ID, Gemini's response, and any pending tool approvals that need your decision.`,
+Returns: Session ID (save this to continue the conversation!), Gemini's response, and any pending tool approvals.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -84,7 +93,7 @@ Returns: Session ID, Gemini's response, and any pending tool approvals that need
         },
         sessionId: {
           type: 'string',
-          description: 'Provide a previous session ID to continue an existing conversation with context preserved.',
+          description: 'To CONTINUE a previous conversation with memory preserved, pass the session ID from a prior response. To start FRESH with no memory, omit this parameter. Multi-step tasks should reuse the same sessionId.',
         },
       },
       required: ['task'],
@@ -238,7 +247,8 @@ HOW IT DIFFERS FROM gemini_delegate_task_to_assistant:
 - Consultation is for OPINIONS and REVIEW (Gemini thinks and responds)
 - Task delegation is for WORK (Gemini searches, edits, generates)
 - Consultation runs in auto-execute mode (no approval prompts)
-- Consultation doesn't maintain session state
+- Consultation is STATELESS - each call is independent with no memory of previous consultations
+- For multi-turn conversations with memory, use gemini_delegate_task_to_assistant with sessionId
 
 TIPS:
 - Provide rich context in the 'context' field (code snippets, file contents, plans)

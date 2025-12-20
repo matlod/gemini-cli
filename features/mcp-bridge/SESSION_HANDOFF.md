@@ -1,162 +1,114 @@
 # Session Handoff - MCP Bridge for Gemini CLI
 
-**Date:** 2024-12-19
-**Status:** ✅ WORKING - E2E tested with Gemini 3 Pro
+**Date:** 2024-12-20
+**Status:** ✅ WORKING - 129 tests passing, session continuity verified
 
 ## Quick Resume
 
 ```bash
-# 1. Start A2A server (keep running)
-CODER_AGENT_PORT=41242 USE_CCPA=true npm run start -w packages/a2a-server
+# 1. Start A2A server
+cp start-a2a.sh.example start-a2a.sh  # Edit path first
+./start-a2a.sh
 
-# 2. Restart Claude Code to pick up MCP server (already configured in ~/.claude/settings.json)
+# 2. Run tests
+cd features/mcp-bridge && npm test
 
-# 3. Test - call gemini_get_agent_capabilities_and_version
+# 3. Restart Claude Code to pick up MCP server
 ```
 
-## Current State
+## What's Working ✅
 
-### What's Done ✅
-- MCP bridge built and working (`features/mcp-bridge/dist/`)
-- JSON-RPC envelope fix applied (critical - A2A expects `method: "message/stream"`)
-- 9 MCP tools with LLM-friendly descriptive names
-- OAuth auth working via `USE_CCPA=true`
-- Fixed port via `CODER_AGENT_PORT=41242`
-- Claude Code settings configured (`~/.claude/settings.json`)
-- Test files created (`src/*.test.ts`) - need to run `npm test`
+- **MCP Bridge** - 9 tools exposing Gemini via MCP
+- **Session Continuity** - Pass sessionId to maintain conversation memory
+- **129 Tests** - Unit + integration tests all passing
+- **OAuth Auth** - Working via `USE_CCPA=true`
+- **JSON-RPC Format** - Proper envelope with `method: "message/stream"`
 
-### What's NOT Done ❌
-- Tests not yet run (vitest installed, tests written)
-- Per-request model selection (Flash vs Pro) - requires A2A server fork
-- Real streaming (currently buffered)
+## What's NOT Done ❌
 
-## Architecture
+- **Per-request model selection** - Flash vs Pro requires A2A server modification
+  - Currently uses `gemini-3-pro-preview` for all requests
+  - See MODEL_CONFIGURATION.md for implementation plan
 
-```
-Claude Code ──MCP (stdio)──▶ MCP Bridge ──HTTP──▶ A2A Server ──▶ Gemini 3.0
-                             (features/         (packages/      (Pro)
-                              mcp-bridge/)       a2a-server/)
-```
+## Critical Fixes Applied This Session
 
-## Tool Names (Updated)
+### Fix 1: JSON-RPC Envelope
+A2A server expects requests wrapped in JSON-RPC format.
 
-| New Name | Purpose |
-|----------|---------|
-| `gemini_delegate_task_to_assistant` | Async task delegation (grunt work) |
-| `gemini_approve_or_deny_pending_action` | Respond to tool confirmations |
-| `gemini_check_task_progress_and_status` | Get task status |
-| `gemini_cancel_running_task` | Cancel running task |
-| `gemini_list_all_active_sessions` | List sessions |
-| `gemini_quick_consultation_for_second_opinion` | Sync consultation |
-| `gemini_execute_cli_command` | CLI commands (init, restore) |
-| `gemini_list_available_cli_commands` | List commands |
-| `gemini_get_agent_capabilities_and_version` | Agent info (ping test) |
+### Fix 2: Session Continuity (taskId placement)
+**Problem:** Gemini didn't remember context between messages.
 
-## Critical Fix Applied
-
-**Problem:** A2A server expects JSON-RPC format, not raw messages.
+**Root Cause:** taskId was in `params.taskId` but SDK expects `message.taskId`.
 
 **Solution in `a2a-client.ts`:**
 ```typescript
-// Wrap ALL requests in JSON-RPC envelope
-const body = {
-  jsonrpc: '2.0',
-  id: requestId,
-  method: 'message/stream',  // CRITICAL
-  params: {
-    message: messageObj,
-    metadata: { coderAgent: { ... } }
-  }
-};
+// WRONG:
+params.taskId = taskId;
+
+// CORRECT:
+messageObj.taskId = taskId;
+messageObj.contextId = contextId;
 ```
 
-## Files Changed This Session
+**Verified:** Tested manually - Gemini remembers "ELEPHANT" across messages in same session.
+
+## Session Management
+
+| Scenario | sessionId | Result |
+|----------|-----------|--------|
+| New independent task | Omit | Fresh session, no memory |
+| Continue conversation | Pass previous ID | Gemini remembers context |
+| Quick consultation | N/A (stateless) | Always fresh |
+
+## Files Structure
 
 ```
 features/mcp-bridge/
 ├── src/
-│   ├── index.ts          # Tool names updated, descriptions enhanced
-│   ├── a2a-client.ts     # JSON-RPC envelope fix (CRITICAL)
-│   ├── a2a-client.test.ts # NEW - unit tests
-│   └── index.test.ts     # NEW - MCP tool tests
-├── package.json          # Added vitest, test scripts
-├── README.md             # Complete setup guide
-├── AUTHENTICATION.md     # OAuth vs API key docs
-├── MODEL_CONFIGURATION.md # Model selection analysis
-└── SESSION_HANDOFF.md    # This file
-
-.claude/
-└── settings.json.example # Template for users
+│   ├── index.ts              # MCP server, 9 tools
+│   ├── a2a-client.ts         # HTTP client (session fix here)
+│   ├── *.test.ts             # 129 tests
+├── test-outputs/             # Captured real responses (gitignored)
+├── start-a2a.sh.example      # Template script
+├── .gitignore
+├── README.md                 # Setup guide
+├── TESTING_SESSIONS.md       # Session testing guide
+├── MODEL_CONFIGURATION.md    # Model selection analysis
+├── AUTHENTICATION.md         # OAuth docs
+└── SESSION_HANDOFF.md        # This file
 ```
 
-## Environment Setup
+## Next Session: Model Selection
 
-### A2A Server
-```bash
-CODER_AGENT_PORT=41242 USE_CCPA=true npm run start -w packages/a2a-server
-```
+To implement Flash vs Pro per-request:
 
-### MCP Bridge (auto-started by Claude Code)
-Configured in `~/.claude/settings.json`:
-```json
-{
-  "mcpServers": {
-    "gemini": {
-      "command": "node",
-      "args": ["/home/matlod1/Documents/AI/modcli/gemini-cli/features/mcp-bridge/dist/index.js"],
-      "env": { "A2A_SERVER_URL": "http://localhost:41242" }
-    }
-  }
-}
-```
+1. **A2A Server Changes** (`packages/a2a-server/`):
+   - `src/types.ts` - Add `model?: string` to AgentSettings
+   - `src/config/config.ts` - Accept model parameter
+   - `src/agent/executor.ts` - Pass model from agentSettings
+
+2. **MCP Bridge Changes** (`features/mcp-bridge/`):
+   - Add `model` parameter to tools
+   - Pass in metadata: `{ coderAgent: { model: 'flash' } }`
+
+3. **Test**: Verify response shows different model
 
 ## Test Commands
 
 ```bash
-# Build
-cd features/mcp-bridge && npm run build
+# Run all tests
+cd features/mcp-bridge && npm test
 
-# Run tests
-npm test
+# Test session continuity manually (see TESTING_SESSIONS.md)
+curl -X POST http://localhost:41242/ -d '...'
 
-# Test A2A directly
-curl http://localhost:41242/.well-known/agent-card.json
-
-# Test MCP bridge
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | A2A_SERVER_URL=http://localhost:41242 node dist/index.js
-```
-
-## Known Gaps for Future
-
-1. **Model Selection:** A2A server uses `settings.general.previewFeatures` to choose model at startup. No per-request selection. See `MODEL_CONFIGURATION.md` for fork plan.
-
-2. **Streaming:** Currently buffers entire SSE response. Could add true streaming later.
-
-3. **Tests:** Written but not run. Execute `npm test` to verify.
-
-## Git Commits This Session
-
-```
-7c51499a docs: comprehensive setup guide with Claude Code integration
-203e63f7 fix: wrap A2A requests in JSON-RPC envelope
-3e2023fa docs: add authentication analysis for CLI OAuth vs API key
-210cb9ed docs: add model configuration analysis and improve MCP tool descriptions
-c6d1dd2e feat: add MCP bridge for Claude Code integration
-```
-
-## Verified Working
-
-```bash
-# This returned "Four" from Gemini 3 Pro:
-echo '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{
-  "name":"gemini_delegate_task_to_assistant",
-  "arguments":{"task":"What is 2+2? Answer in one word.","workspace":"/home/matlod1/Documents/AI/modcli/gemini-cli","autoExecute":true}
-}}' | A2A_SERVER_URL=http://localhost:41242 node dist/index.js
+# Check current model
+grep '"model"' /tmp/first.txt
 ```
 
 ## Key Documentation
 
 - [README.md](./README.md) - Complete setup guide
+- [TESTING_SESSIONS.md](./TESTING_SESSIONS.md) - Session testing with curl examples
+- [MODEL_CONFIGURATION.md](./MODEL_CONFIGURATION.md) - Model selection implementation plan
 - [AUTHENTICATION.md](./AUTHENTICATION.md) - OAuth vs API key
-- [MODEL_CONFIGURATION.md](./MODEL_CONFIGURATION.md) - Model selection & A2A fork plan
-- `.claude/settings.json.example` - Template for users

@@ -268,7 +268,7 @@ export class A2AClient {
    * Cancel a task
    * Note: Cancellation is handled via the executor, we send a cancel message
    */
-  async cancelTask(taskId: string, contextId: string): Promise<A2ATaskResponse[]> {
+  async cancelTask(taskId: string, _contextId?: string): Promise<A2ATaskResponse[]> {
     // Send a cancel signal via message with special handling
     // The A2A server handles cancellation through the executor
     const messageId = crypto.randomUUID();
@@ -324,6 +324,7 @@ export class A2AClient {
     const requestId = crypto.randomUUID();
 
     // Build the message object
+    // NOTE: taskId and contextId must be ON the message object for session continuity
     const messageObj: Record<string, unknown> = {
       kind: 'message',
       role: 'user',
@@ -331,15 +332,20 @@ export class A2AClient {
       messageId,
     };
 
+    // Add taskId to message if continuing a conversation
+    if (taskId) {
+      messageObj.taskId = taskId;
+    }
+
+    // Add contextId to message if provided
+    if (contextId) {
+      messageObj.contextId = contextId;
+    }
+
     // Build params
     const params: Record<string, unknown> = {
       message: messageObj,
     };
-
-    // Add taskId if continuing a conversation
-    if (taskId) {
-      params.taskId = taskId;
-    }
 
     // Add metadata with workspace settings
     if (workspacePath) {
@@ -389,6 +395,7 @@ export class A2AClient {
     const requestId = crypto.randomUUID();
 
     // Build the message object
+    // NOTE: taskId and contextId must be ON the message object for session continuity
     const messageObj: Record<string, unknown> = {
       kind: 'message',
       role: 'user',
@@ -396,15 +403,20 @@ export class A2AClient {
       messageId,
     };
 
+    // Add taskId to message if continuing a conversation
+    if (taskId) {
+      messageObj.taskId = taskId;
+    }
+
+    // Add contextId to message if provided
+    if (contextId) {
+      messageObj.contextId = contextId;
+    }
+
     // Build params
     const params: Record<string, unknown> = {
       message: messageObj,
     };
-
-    // Add taskId if continuing a conversation
-    if (taskId) {
-      params.taskId = taskId;
-    }
 
     // Add metadata with workspace settings
     if (workspacePath) {

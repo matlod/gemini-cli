@@ -1,0 +1,10 @@
+#!/bin/bash
+# Start the A2A server for MCP bridge
+#
+# Copy this file to start-a2a.sh and update the path:
+#   cp start-a2a.sh.example start-a2a.sh
+#   chmod +x start-a2a.sh
+#   # Edit the path below to match your setup
+#
+cd /path/to/gemini-cli
+CODER_AGENT_PORT=41242 USE_CCPA=true npm run start -w packages/a2a-server

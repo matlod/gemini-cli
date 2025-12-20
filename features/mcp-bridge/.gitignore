@@ -1,0 +1,19 @@
+# Build output
+dist/
+
+# Dependencies
+node_modules/
+
+# Test outputs (captured responses from real A2A server)
+test-outputs/
+
+# Local scripts with user-specific paths
+start-a2a.sh
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
