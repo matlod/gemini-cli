@@ -1003,7 +1003,10 @@ export class CoreToolScheduler {
 
     this.setToolCallOutcome(callId, outcome);
 
-    if (outcome === ToolConfirmationOutcome.Cancel || signal.aborted) {
+    // Only cancel if user explicitly chose to cancel.
+    // Don't let an aborted signal (e.g., from a closed socket) override
+    // the user's explicit decision to proceed.
+    if (outcome === ToolConfirmationOutcome.Cancel) {
       // Instead of just cancelling one tool, trigger the full cancel cascade.
       this.cancelAll(signal);
       return; // `cancelAll` calls `checkAndNotifyCompletion`, so we can exit here.
@@ -1047,17 +1050,25 @@ export class CoreToolScheduler {
         } as ToolCallConfirmationDetails);
       }
     } else {
+      // User explicitly confirmed - create a fresh signal for execution.
+      // The original signal may be stale (aborted from a closed socket),
+      // but since the user explicitly chose to proceed, we should honor that.
+      const freshController = new AbortController();
+      const freshSignal = freshController.signal;
+
       // If the client provided new content, apply it before scheduling.
       if (payload?.newContent && toolCall) {
         await this._applyInlineModify(
           toolCall as WaitingToolCall,
           payload,
-          signal,
+          freshSignal,
         );
       }
-      this.setStatusInternal(callId, 'scheduled', signal);
+      this.setStatusInternal(callId, 'scheduled', freshSignal);
     }
-    await this.attemptExecutionOfScheduledCalls(signal);
+    // Use fresh signal for execution to avoid stale abort state
+    const executionController = new AbortController();
+    await this.attemptExecutionOfScheduledCalls(executionController.signal);
   }
 
   /**

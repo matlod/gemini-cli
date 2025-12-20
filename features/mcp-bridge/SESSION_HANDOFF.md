@@ -1,7 +1,22 @@
 # Session Handoff - MCP Bridge for Gemini CLI
 
-**Date:** 2024-12-19 **Status:** ✅ WORKING - 141 tests passing, all features
-implemented
+**Date:** 2024-12-20 **Status:** COMPLETE - All features working
+
+## Recent Fix: Tool Approval Flow
+
+The tool approval flow (`autoExecute: false`) is now working correctly.
+
+**Problem solved:** When using `gemini_approve_or_deny_pending_action`, the tool
+was getting cancelled due to stale abort signals from closed HTTP connections.
+
+**See:** `TOOL_APPROVAL_FIX.md` for technical details and
+`MCP_A2A_LESSONS_LEARNED.md` for debugging lessons.
+
+### Files Changed (need commit)
+
+1. `packages/core/src/core/coreToolScheduler.ts` - Fresh abort signal on confirm
+2. `packages/a2a-server/src/agent/executor.ts` - Graceful socket close, fresh
+   signals
 
 ## Quick Resume
 
@@ -27,6 +42,7 @@ npm run build
 | Session Continuity          | ✅     | Pass sessionId to maintain conversation memory  |
 | Per-Request Model Selection | ✅     | `model: "flash"` or `model: "pro"`              |
 | MCP Progress Notifications  | ✅     | Real-time status during task execution          |
+| Tool Approval Flow          | ✅     | `autoExecute: false` + approve works correctly  |
 | Integration Tests           | ✅     | Model selection verified with real API          |
 | OAuth Auth                  | ✅     | Working via `USE_CCPA=true`                     |
 | JSON-RPC Format             | ✅     | Proper envelope with `method: "message/stream"` |
@@ -178,7 +194,7 @@ npm run build
 | Session not found          | Sessions are in-memory, lost on A2A restart     |
 | Model not switching        | Check metadata is on message object, not params |
 | callId shows "undefined"   | Extract from `request.callId`, not top-level    |
-| Tool approval cancelled    | Include workspace metadata in confirmation msg  |
+| AbortError on approval     | Fixed! See `MCP_A2A_LESSONS_LEARNED.md`         |
 
 ## Related Files (Outside mcp-bridge)
 
@@ -197,3 +213,7 @@ Model selection required changes in a2a-server:
 - [TESTING_SESSIONS.md](./TESTING_SESSIONS.md) - Manual curl testing
 - [MODEL_CONFIGURATION.md](./MODEL_CONFIGURATION.md) - Model selection analysis
 - [AUTHENTICATION.md](./AUTHENTICATION.md) - OAuth vs API key
+- [TOOL_APPROVAL_FIX.md](./TOOL_APPROVAL_FIX.md) - Tool approval flow fix
+  details
+- [MCP_A2A_LESSONS_LEARNED.md](./MCP_A2A_LESSONS_LEARNED.md) - Debugging lessons
+  for MCP-A2A integration

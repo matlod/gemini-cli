@@ -195,23 +195,43 @@ claude mcp add gemini --scope project -- node /path/to/dist/index.js -e A2A_SERV
 | `src/a2a-client.ts`       | A2A HTTP client    | 347-414 (sendMessage)              |
 | `src/integration.test.ts` | Real API tests     | Model selection tests at 131-168   |
 
-## Recent Work (2024-12-19)
+## Recent Work (2024-12-20)
 
 1. Added integration tests for model selection (flash/pro verification)
 2. Implemented MCP progress notifications (streaming status updates)
 3. Fixed MCP config: use `.mcp.json` (NOT `settings.json`) for MCP servers
 4. Fixed `callId` extraction - was nested in `request` object, not top-level
-5. Fixed `taskId`/`contextId` placement in `sendConfirmation` - must be ON message object
-6. Fixed tool approval flow - confirmation messages now include workspace metadata
-7. Cleaned up redundant `taskId` at params level in `cancelTask`
+5. Fixed `taskId`/`contextId` placement in `sendConfirmation` - must be ON
+   message object
+6. **FIXED: Tool approval flow** - stale abort signals from closed HTTP
+   connections
+7. Added 30-minute idle timeout for abandoned tasks
 
-Total: 141 tests passing.
+Total: 141 tests passing (MCP bridge), 38 tests (coreToolScheduler), 82 tests
+(a2a-server).
 
-## Current Task
+## Tool Approval Flow - WORKING
 
-Testing manual tool approval flow. After restart, try:
-1. `gemini_delegate_task_to_assistant` with a file write task (no autoExecute)
-2. When it shows PENDING DECISIONS with a callId, use `gemini_approve_or_deny_pending_action`
-3. Verify the file gets created
+The `autoExecute: false` flow now works correctly:
 
-If approval still fails, check A2A server logs for `[Task] Handling tool confirmation`.
+```bash
+# 1. Delegate task (no autoExecute)
+gemini_delegate_task_to_assistant: "Create test.md with hello"
+
+# 2. When pending, approve
+gemini_approve_or_deny_pending_action with decision: "approve"
+
+# 3. Tool executes and response returns (no AbortError!)
+```
+
+**Root cause was:** Stale abort signal from closed HTTP connection. When first
+request's SSE ends, the socket closes and abort signal is set. When second
+request sends approval, the stale signal was still being checked.
+
+**Fix:** Create fresh AbortController when user confirms, and handle concurrent
+executions (primary/secondary) correctly.
+
+See:
+
+- `TOOL_APPROVAL_FIX.md` - Technical details of the fix
+- `MCP_A2A_LESSONS_LEARNED.md` - Debugging lessons for future reference

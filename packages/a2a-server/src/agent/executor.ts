@@ -37,6 +37,12 @@ import { Task } from './task.js';
 import { requestStorage } from '../http/requestStorage.js';
 import { pushTaskStateFailed } from '../utils/executor_utils.js';
 
+// Default idle timeout before a task is considered abandoned (30 minutes)
+const DEFAULT_TASK_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+
+// How often to run the cleanup check (5 minutes)
+const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
+
 /**
  * Provides a wrapper for Task. Passes data from Task to SDKTask.
  * The idea is to use this class inside CoderAgentExecutor to replace Task.
@@ -44,14 +50,31 @@ import { pushTaskStateFailed } from '../utils/executor_utils.js';
 class TaskWrapper {
   task: Task;
   agentSettings: AgentSettings;
+  lastActivity: Date;
 
   constructor(task: Task, agentSettings: AgentSettings) {
     this.task = task;
     this.agentSettings = agentSettings;
+    this.lastActivity = new Date();
   }
 
   get id() {
     return this.task.id;
+  }
+
+  /**
+   * Update the last activity timestamp. Called whenever there's interaction
+   * with this task (new messages, tool updates, confirmations, etc.)
+   */
+  touchActivity(): void {
+    this.lastActivity = new Date();
+  }
+
+  /**
+   * Check if this task has been idle for longer than the timeout.
+   */
+  isIdle(timeoutMs: number = DEFAULT_TASK_IDLE_TIMEOUT_MS): boolean {
+    return Date.now() - this.lastActivity.getTime() > timeoutMs;
   }
 
   toSDKTask(): SDKTask {
@@ -84,8 +107,85 @@ export class CoderAgentExecutor implements AgentExecutor {
   private tasks: Map<string, TaskWrapper> = new Map();
   // Track tasks with an active execution loop.
   private executingTasks = new Set<string>();
+  private cleanupInterval: NodeJS.Timeout | null = null;
+  private idleTimeoutMs: number;
 
-  constructor(private taskStore?: TaskStore) {}
+  constructor(
+    private taskStore?: TaskStore,
+    idleTimeoutMs: number = DEFAULT_TASK_IDLE_TIMEOUT_MS,
+  ) {
+    this.idleTimeoutMs = idleTimeoutMs;
+    this.startCleanupTimer();
+  }
+
+  /**
+   * Start the periodic cleanup timer for abandoned tasks.
+   */
+  private startCleanupTimer(): void {
+    if (this.cleanupInterval) {
+      return; // Already running
+    }
+
+    this.cleanupInterval = setInterval(() => {
+      this.cleanupIdleTasks();
+    }, CLEANUP_INTERVAL_MS);
+
+    // Don't prevent the process from exiting
+    this.cleanupInterval.unref();
+
+    logger.info(
+      `[CoderAgentExecutor] Started idle task cleanup timer (timeout: ${this.idleTimeoutMs / 1000 / 60} minutes)`,
+    );
+  }
+
+  /**
+   * Stop the cleanup timer. Call this when shutting down the executor.
+   */
+  stopCleanupTimer(): void {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+      logger.info('[CoderAgentExecutor] Stopped idle task cleanup timer');
+    }
+  }
+
+  /**
+   * Clean up tasks that have been idle for too long.
+   * These are considered abandoned by the client.
+   */
+  private cleanupIdleTasks(): void {
+    const now = new Date();
+    let cleanedCount = 0;
+
+    for (const [taskId, wrapper] of this.tasks.entries()) {
+      // Skip tasks that are actively executing
+      if (this.executingTasks.has(taskId)) {
+        continue;
+      }
+
+      if (wrapper.isIdle(this.idleTimeoutMs)) {
+        const idleMinutes = Math.round(
+          (now.getTime() - wrapper.lastActivity.getTime()) / 1000 / 60,
+        );
+        logger.info(
+          `[CoderAgentExecutor] Cleaning up idle task ${taskId} (idle for ${idleMinutes} minutes)`,
+        );
+
+        // Cancel any pending tools before removing
+        wrapper.task.cancelPendingTools('Task abandoned due to inactivity');
+
+        // Remove from in-memory cache
+        this.tasks.delete(taskId);
+        cleanedCount++;
+      }
+    }
+
+    if (cleanedCount > 0) {
+      logger.info(
+        `[CoderAgentExecutor] Cleaned up ${cleanedCount} idle task(s). Active tasks: ${this.tasks.size}`,
+      );
+    }
+  }
 
   private async getConfig(
     agentSettings: AgentSettings,
@@ -322,8 +422,12 @@ export class CoderAgentExecutor implements AgentExecutor {
       // Grab the raw socket from the request object
       const socket = store.req.socket;
       const onClientEnd = () => {
+        // Client closed connection - this is normal behavior, especially when
+        // waiting for tool approval. The task will remain in memory and can be
+        // resumed by a new request. The idle timeout will clean up truly
+        // abandoned tasks.
         logger.info(
-          `[CoderAgentExecutor] Client socket closed for task ${taskId}. Cancelling execution.`,
+          `[CoderAgentExecutor] Client socket closed for task ${taskId}. Exiting execution loop (task remains active).`,
         );
         if (!abortController.signal.aborted) {
           abortController.abort();
@@ -348,6 +452,7 @@ export class CoderAgentExecutor implements AgentExecutor {
 
     if (wrapper) {
       wrapper.task.eventBus = eventBus;
+      wrapper.touchActivity(); // Update activity timestamp on any interaction
       logger.info(`[CoderAgentExecutor] Task ${taskId} found in memory cache.`);
     } else if (sdkTask) {
       logger.info(
@@ -456,7 +561,23 @@ export class CoderAgentExecutor implements AgentExecutor {
           `[CoderAgentExecutor] Processing user message ${userMessage.messageId} in secondary execution loop for task ${taskId}.`,
         );
       }
-      // End this execution-- the original/source will be resumed.
+      // Keep SSE connection open until the first execution completes.
+      // The first execution will stream events (tool results, LLM response)
+      // via the eventBus we just updated.
+      logger.info(
+        `[CoderAgentExecutor] Task ${taskId}: Secondary execution waiting for primary to complete.`,
+      );
+      await new Promise<void>((resolve) => {
+        const checkInterval = setInterval(() => {
+          if (!this.executingTasks.has(taskId)) {
+            clearInterval(checkInterval);
+            logger.info(
+              `[CoderAgentExecutor] Task ${taskId}: Primary execution completed, secondary can return.`,
+            );
+            resolve();
+          }
+        }, 50);
+      });
       return;
     }
 
@@ -473,13 +594,19 @@ export class CoderAgentExecutor implements AgentExecutor {
         abortSignal,
       );
 
+      // Track the active signal for abort checks.
+      // Initially it's the original signal, but may be replaced with a fresh
+      // signal if the original was aborted (stale from socket close) but tools
+      // completed successfully.
+      let activeSignal = abortSignal;
+
       while (agentTurnActive) {
         logger.info(
           `[CoderAgentExecutor] Task ${taskId}: Processing agent turn (LLM stream).`,
         );
         const toolCallRequests: ToolCallRequestInfo[] = [];
         for await (const event of agentEvents) {
-          if (abortSignal.aborted) {
+          if (activeSignal.aborted) {
             logger.warn(
               `[CoderAgentExecutor] Task ${taskId}: Abort signal received during agent event processing.`,
             );
@@ -492,13 +619,13 @@ export class CoderAgentExecutor implements AgentExecutor {
           await currentTask.acceptAgentMessage(event);
         }
 
-        if (abortSignal.aborted) throw new Error('Execution aborted');
+        if (activeSignal.aborted) throw new Error('Execution aborted');
 
         if (toolCallRequests.length > 0) {
           logger.info(
             `[CoderAgentExecutor] Task ${taskId}: Found ${toolCallRequests.length} tool call requests. Scheduling as a batch.`,
           );
-          await currentTask.scheduleToolCalls(toolCallRequests, abortSignal);
+          await currentTask.scheduleToolCalls(toolCallRequests, activeSignal);
         }
 
         logger.info(
@@ -509,9 +636,42 @@ export class CoderAgentExecutor implements AgentExecutor {
           `[CoderAgentExecutor] Task ${taskId}: All pending tools completed or none were pending.`,
         );
 
-        if (abortSignal.aborted) throw new Error('Execution aborted');
-
         const completedTools = currentTask.getAndClearCompletedTools();
+
+        // Determine if we have successful tools to process
+        const hasSuccessfulTools =
+          completedTools.length > 0 &&
+          !completedTools.every((tool) => tool.status === 'cancelled');
+
+        // Handle stale abort signal from socket close:
+        // If original signal is aborted but we have successful tools, create a fresh signal
+        // BEFORE checking abort status. This allows the execution to continue.
+        if (
+          abortSignal.aborted &&
+          activeSignal === abortSignal &&
+          hasSuccessfulTools
+        ) {
+          logger.info(
+            `[CoderAgentExecutor] Task ${taskId}: Creating fresh abort signal for LLM continuation after tool completion.`,
+          );
+          const freshController = new AbortController();
+          activeSignal = freshController.signal;
+        }
+
+        // Now check abort status using activeSignal (which may be fresh)
+        if (activeSignal.aborted) {
+          throw new Error('Execution aborted');
+        }
+
+        // If original signal is aborted, activeSignal is still original, and no successful tools,
+        // we should abort
+        if (
+          abortSignal.aborted &&
+          activeSignal === abortSignal &&
+          !hasSuccessfulTools
+        ) {
+          throw new Error('Execution aborted');
+        }
 
         if (completedTools.length > 0) {
           // If all completed tool calls were canceled, manually add them to history and set state to input-required, final:true
@@ -538,7 +698,7 @@ export class CoderAgentExecutor implements AgentExecutor {
 
             agentEvents = currentTask.sendCompletedToolsToLlm(
               completedTools,
-              abortSignal,
+              activeSignal,
             );
             // Continue the loop to process the LLM response to the tool results.
           }
@@ -565,20 +725,14 @@ export class CoderAgentExecutor implements AgentExecutor {
       );
     } catch (error) {
       if (abortSignal.aborted) {
-        logger.warn(`[CoderAgentExecutor] Task ${taskId} execution aborted.`);
-        currentTask.cancelPendingTools('Execution aborted');
-        if (
-          currentTask.taskState !== 'canceled' &&
-          currentTask.taskState !== 'failed'
-        ) {
-          currentTask.setTaskStateAndPublishUpdate(
-            'input-required',
-            { kind: CoderAgentEvent.StateChangeEvent },
-            'Execution aborted by client.',
-            undefined,
-            true,
-          );
-        }
+        // Client closed connection - this is normal behavior.
+        // Don't cancel pending tools or change task state.
+        // The task remains active in memory and can be resumed by a new request.
+        // The idle timeout cleanup will handle truly abandoned tasks.
+        logger.info(
+          `[CoderAgentExecutor] Task ${taskId} execution loop exited (client disconnected). ` +
+            `Task state: ${currentTask.taskState}. Task remains active for resumption.`,
+        );
       } else {
         const errorMessage =
           error instanceof Error ? error.message : 'Agent execution error';
