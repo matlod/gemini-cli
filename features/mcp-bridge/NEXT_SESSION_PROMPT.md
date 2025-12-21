@@ -1,237 +1,325 @@
-# MCP Bridge Session Startup
+# MCP Bridge + Memory System - Session Startup
 
 ## Quick Context
 
-You're working on an **MCP bridge** that lets Claude Code use Gemini as a
-subagent. The bridge translates MCP protocol to A2A (Agent-to-Agent) protocol.
+You're working on **two systems** in the gemini-cli project:
 
-**Current state:** Fully functional with 141 tests passing.
+1. **MCP Bridge** (COMPLETE) - Lets Claude Code use Gemini as a subagent via
+   MCP→A2A protocol
+2. **Memory System** (IN PROGRESS) - Multi-agent orchestration fabric with
+   persistent memory
 
-## Read These Files First
+---
 
-1. `SESSION_HANDOFF.md` - Full technical context
-2. `README.md` - User-facing setup guide
+## What to Read First
 
-## Architecture (30-second version)
+```bash
+# Memory System (current focus)
+cat docs/memorysystem/README.md             # Vision & architecture
+cat docs/memorysystem/DOCS_STRATEGY.md      # Phased work plan with progress
+cat docs/memorysystem/05-orchestration.md   # 15 orchestration patterns (core!)
+cat docs/memorysystem/12-technology-decisions.md  # Tech stack decisions
 
-```
-Claude Code ──MCP──▶ MCP Bridge ──HTTP──▶ A2A Server ──▶ Gemini API
-              │      (this pkg)           (separate)     (cloud)
-              │
-              └── stdio transport, 9 tools exposed
-```
-
-**Key insight:** The MCP bridge is a translator. It receives MCP tool calls from
-Claude Code and converts them to A2A protocol HTTP requests to the Gemini A2A
-server.
-
-## What's Implemented
-
-| Feature                | File                        | How It Works                       |
-| ---------------------- | --------------------------- | ---------------------------------- |
-| 9 MCP Tools            | `src/index.ts`              | Tool definitions + handlers        |
-| Session Memory         | `src/a2a-client.ts:347-414` | taskId/contextId on message object |
-| Model Selection        | `src/a2a-client.ts:377-388` | metadata.coderAgent.model          |
-| Progress Notifications | `src/index.ts:531-595`      | sendProgress() during streaming    |
-| A2A Protocol           | `src/a2a-client.ts`         | JSON-RPC envelope, SSE parsing     |
-
-## Critical Implementation Details
-
-### 1. Message Structure (Most Common Bug Source)
-
-Everything must be on the **message object**, not params:
-
-```typescript
-// CORRECT
-params: {
-  message: {
-    taskId: "...",           // HERE
-    contextId: "...",        // HERE
-    metadata: { ... }        // HERE
-  }
-}
-
-// WRONG - executor never sees these
-params: {
-  taskId: "...",             // IGNORED
-  metadata: { ... }          // IGNORED
-  message: { ... }
-}
+# MCP Bridge (complete, for reference)
+cat features/mcp-bridge/SESSION_HANDOFF.md  # Full technical context
 ```
 
-### 2. JSON-RPC Envelope Required
+---
 
-All requests must be wrapped:
+## Memory System Overview
 
-```typescript
-const body = {
-  jsonrpc: '2.0',
-  id: requestId,
-  method: 'message/stream',
-  params: { message: messageObj },
-};
+**Purpose:** Multi-agent orchestration fabric with persistent memory.
+
+**Architecture:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Human Oversight                          │
+│  (nudges, approvals, course corrections, priority changes)      │
+└─────────────────────────────────────┬───────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      Orchestration Layer                        │
+│  - 15 patterns for task coordination                            │
+│  - Phased execution with review checkpoints                     │
+└───────────┬─────────────────────────────────────────┬───────────┘
+            │                                         │
+            ▼                                         ▼
+┌───────────────────────┐                 ┌───────────────────────┐
+│    Working Memory     │◄───────────────►│    Agent Workers      │
+│  (per-task context)   │   read/write    │  (roles: QA, dev,     │
+│  LadybugDB task graph │                 │   researcher, etc.)   │
+└───────────┬───────────┘                 └───────────────────────┘
+            │
+            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                       Memory Cores                              │
+│  LanceDB (vectors + metadata) + LadybugDB (graph)               │
+│  - Lessons learned, patterns, golden paths                      │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### 3. Progress Notifications
+### Technology Stack (DECIDED)
 
-Only sent when Claude Code provides `progressToken`:
+| Component         | Technology            | Purpose                          |
+| ----------------- | --------------------- | -------------------------------- |
+| Vector + Metadata | **LanceDB**           | Semantic search, Pydantic models |
+| Graph             | **LadybugDB**         | Relationships, Cypher queries    |
+| Embeddings        | **OpenAI-compatible** | ollama, vLLM, SGLang, etc.       |
+| Embedding trick   | **Matryoshka**        | Fast search → full rerank        |
 
-```typescript
-const progressToken = request.params._meta?.progressToken;
-if (progressToken) {
-  // Use streaming version
-  await a2aClient.sendMessageStreaming(task, (event) => {
-    sendProgress(progressToken, count++, undefined, getProgressMessage(event));
-  }, ...);
-}
+### Documentation Status
+
+| Phase | Status       | Tasks                                                                       |
+| ----- | ------------ | --------------------------------------------------------------------------- |
+| 1     | **COMPLETE** | Schema (10), Retrieval (08), Config (13)                                    |
+| 2     | Pending      | Memory Cores (02), Working Memory (03), Code Index (11), Agent Roles (04)   |
+| 3     | Pending      | API Design (14), Bootstrap (15), Orchestration (05), Human Interaction (06) |
+| 4     | Pending      | Gemini Pro reviews of all docs                                              |
+
+### Key Files
+
+| File                                      | Purpose               | Lines of Interest                  |
+| ----------------------------------------- | --------------------- | ---------------------------------- |
+| `README.md`                               | Vision, doc index     | Architecture diagram               |
+| `DOCS_STRATEGY.md`                        | Work plan             | Progress table, phase instructions |
+| `05-orchestration.md`                     | **Core!** 15 patterns | Patterns 1-15 with full TypeScript |
+| `10-data-schema.md`                       | LanceDB + LadybugDB   | Pydantic models, Cypher DDL        |
+| `08-retrieval-system.md`                  | Query examples        | Semantic, graph, hybrid patterns   |
+| `12-technology-decisions.md`              | Tech decisions        | Config examples, query patterns    |
+| `13-configuration.md`                     | Full config schema    | memory-config.yaml spec            |
+| `analysis/FULL_ORCHESTRATION_ANALYSIS.md` | Subagent findings     | 7 agent analysis, new gaps         |
+| `16-future-ideas.md`                      | Advanced patterns     | Constitution, smart tools, UX      |
+
+### 19 Orchestration Patterns (in 05-orchestration.md)
+
+1. **Phased Execution** - Group tasks into phases with review checkpoints
+2. **Task Instructions** - Context requirements + expected output specs
+3. **Hierarchical Task IDs** - P1-A, P2-B pattern for easy tracking
+4. **Progress Tracking** - Observable state table
+5. **Partial Parallelism** - Groups within phases, with dependencies
+6. **Review Checkpoint Criteria** - Verifiable checklist items
+7. **Execution Commands** - Actual dispatch commands as output
+8. **Decision Logging** - Track choices with rationale
+9. **Gap Tracking** - Living document of unknowns
+10. **Context Building** - Pre-fetch before dispatch
+11. **Output Validation** - mustContain/mustNotContain specs
+12. **Event-Driven Coordination** - Event bus instead of polling
+13. **Multi-Agent Checkpoints** - Phase-wide atomic snapshots
+14. **Role-Specific Validation** - Validators per agent role
+15. **Cascading Priority** - Auto-promote blockers, log as decisions
+16. **Pre-Check Investigation** - Fast model scans codebase before main agent
+    acts
+17. **Draft-Review-Commit** - Three-phase write with self-correction loop
+18. **Failure Classification** - Route errors to correct fix (test vs code)
+19. **Topic-Based Compression** - Context as database of active/dormant topics
+
+### Future Ideas (in 16-future-ideas.md)
+
+**Safety & Governance:**
+
+- Constitution governance file (hard-coded rules)
+- Validated write with auto-lint
+- Synchronous interceptor middleware
+- Immutability lock for refactoring
+
+**Smart Tools:**
+
+- Windowed file reader (preserve tokens)
+- Pattern finder ("how do we do X here?")
+- External doc fetching (npm/pypi/mdn)
+
+**Context Management:**
+
+- Token budget manager (proactive compression)
+- Automatic gotcha injection (surface past failures)
+
+**UX:**
+
+- Live watch mode dashboard
+- Undo stack (beyond git)
+- Crash recovery state persistence
+- Spec enforcer init flow
+
+---
+
+## MCP Bridge Overview (COMPLETE)
+
+**Purpose:** Let Claude Code use Gemini as a subagent.
+
 ```
+Claude Code ──MCP (stdio)──▶ MCP Bridge ──HTTP──▶ A2A Server ──▶ Gemini API
+                             (this pkg)           (packages/     (Pro/Flash)
+                                                   a2a-server/)
+```
+
+**Status:** 141 tests passing, all features working.
+
+**Key Features:**
+
+- 9 MCP tools for Gemini interaction
+- Session continuity (taskId/contextId)
+- Model selection (flash vs pro)
+- Progress notifications during streaming
+- Tool approval flow (autoExecute: false)
+
+**Files:**
+
+- `src/index.ts` - MCP server + tools
+- `src/a2a-client.ts` - HTTP client for A2A
+- `SESSION_HANDOFF.md` - Full technical details
+
+---
 
 ## Quick Commands
 
 ```bash
-# Working directory
-cd /home/matlod1/Documents/AI/modcli/gemini-cli/features/mcp-bridge
-
-# Start A2A server (separate terminal)
+# Working directories
 cd /home/matlod1/Documents/AI/modcli/gemini-cli
+
+# Memory system docs
+ls docs/memorysystem/
+
+# MCP bridge
+cd features/mcp-bridge && npm test  # 141 tests
+
+# Start A2A server (if needed)
 CODER_AGENT_PORT=41242 USE_CCPA=true npm run start -w packages/a2a-server
-
-# Run tests
-npm test                    # All 141 tests
-npm run build               # Compile TypeScript
-
-# Test MCP server directly
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node dist/index.js
-
-# Check A2A server health
-curl http://localhost:41242/.well-known/agent-card.json
 ```
 
-## Test Structure
+---
 
-| File                  | Tests | What It Tests                          |
-| --------------------- | ----- | -------------------------------------- |
-| `index.test.ts`       | 45    | Tool definitions, formatting, progress |
-| `integration.test.ts` | 7     | Real API calls (needs server)          |
-| `a2a-client.test.ts`  | 28    | HTTP client, parsing                   |
-| `mcp-tools.test.ts`   | 30    | Tool schemas                           |
-| `scenarios.test.ts`   | 31    | Usage scenarios                        |
+## Next Steps (Pick One)
 
-## Suggested Next Tasks
+### Option A: Phase 2 - Component Deep-Dive
 
-### 1. Session Persistence (Medium)
+Enhance these docs with more detail:
 
-Sessions are in-memory, lost when A2A server restarts. Could persist to
-disk/redis.
+- P2-A: `02-memory-cores.md` - Golden path integration, code_refs
+- P2-B: `03-working-memory.md` - LadybugDB task graph, state machine
+- P2-C: `11-code-index.md` - GitHub PAT, tree-sitter, incremental indexing
+- P2-D: `04-agent-roles.md` - System prompts, capability matrix
 
-### 2. Better Error Messages (Small)
+See `DOCS_STRATEGY.md` for detailed instructions per task.
 
-More actionable errors when A2A server down, auth fails, etc.
+### Option B: Apply Subagent Findings
 
-### 3. Progress for Consultation Tool (Small)
+The `analysis/FULL_ORCHESTRATION_ANALYSIS.md` has suggested additions for each
+component doc. Apply them.
 
-Only `gemini_delegate_task_to_assistant` has progress. Could add to
-`gemini_quick_consultation_for_second_opinion`.
+### Option C: Start Prototyping
 
-### 4. Retry Logic (Medium)
+Begin implementing the memory system based on the documentation.
 
-Add automatic retry for transient failures.
+### Option D: Gemini Reviews (Phase 4)
 
-### 5. Rate Limiting (Medium)
+Use the MCP bridge to have Gemini review each doc and write suggestions.
 
-Track API usage, implement backoff.
+---
 
-## MCP Configuration
+## Critical Implementation Details
 
-**Important:** MCP servers go in `.mcp.json`, NOT `settings.json`!
+### Session Continuity (MCP Bridge)
 
-**Project-scoped** (preferred):
-`/home/matlod1/Documents/AI/modcli/gemini-cli/.mcp.json`
+Everything must be on the **message object**:
 
-```json
-{
-  "mcpServers": {
-    "gemini": {
-      "command": "node",
-      "args": [
-        "/home/matlod1/Documents/AI/modcli/gemini-cli/features/mcp-bridge/dist/index.js"
-      ],
-      "env": {
-        "A2A_SERVER_URL": "http://localhost:41242"
-      }
-    }
+```typescript
+params: {
+  message: {
+    taskId: "...",     // HERE
+    contextId: "...",  // HERE
+    metadata: { ... }  // HERE
   }
 }
 ```
 
-**Alternative** (CLI command):
+### LanceDB + LadybugDB Split
 
-```bash
-claude mcp add gemini --scope project -- node /path/to/dist/index.js -e A2A_SERVER_URL=http://localhost:41242
+| Data          | LanceDB                | LadybugDB           |
+| ------------- | ---------------------- | ------------------- |
+| Content       | Full text + embeddings | ID + key props only |
+| Relationships | -                      | All edges           |
+| Queries       | Semantic search        | Graph traversal     |
+
+Entry ID is the join key. Writes go to both.
+
+### Matryoshka Search
+
+```python
+# Stage 1: Fast search with 256 dims
+candidates = table.search(embed(query, dim=256)).limit(100)
+
+# Stage 2: Rerank with full 768 dims
+reranked = rerank(candidates, embed(query, dim=768))
 ```
 
-**Alternative** (global): `claude mcp add gemini --scope user -- ...`
+---
 
-**After changes:** Restart Claude Code completely (not just `/clear` or resume).
+## Common Gotchas
 
-**Verify:** Run `/mcp` in Claude Code to see registered servers.
+| Issue                    | Solution                                                 |
+| ------------------------ | -------------------------------------------------------- |
+| MCP tools not appearing  | Restart Claude Code, use `.mcp.json` not `settings.json` |
+| A2A server not reachable | Start with command above                                 |
+| Session not found        | Sessions are in-memory, lost on restart                  |
+| Gemini doesn't remember  | taskId must be ON message object                         |
 
-## Common Issues
+---
 
-| Symptom                    | Cause                     | Fix                                  |
-| -------------------------- | ------------------------- | ------------------------------------ |
-| MCP tools not appearing    | Claude Code not restarted | Exit and relaunch `claude`           |
-| MCP tools not appearing    | Wrong config file         | Use `.mcp.json`, NOT `settings.json` |
-| "A2A server not reachable" | Server not running        | Start with command above             |
-| Session not found          | Server restarted          | Sessions are in-memory               |
-| Gemini doesn't remember    | taskId not on message     | Check a2a-client.ts:368              |
-| Wrong model used           | metadata not on message   | Check a2a-client.ts:377-388          |
+## Files Changed (Uncommitted)
 
-## Key Files Quick Reference
+All `docs/memorysystem/` files are new and uncommitted:
 
-| File                      | Purpose            | Key Lines                          |
-| ------------------------- | ------------------ | ---------------------------------- |
-| `src/index.ts`            | MCP server + tools | 50-408 (tools), 541-595 (progress) |
-| `src/a2a-client.ts`       | A2A HTTP client    | 347-414 (sendMessage)              |
-| `src/integration.test.ts` | Real API tests     | Model selection tests at 131-168   |
+- 16 markdown files
+- Ready for review and commit
 
-## Recent Work (2024-12-20)
+---
 
-1. Added integration tests for model selection (flash/pro verification)
-2. Implemented MCP progress notifications (streaming status updates)
-3. Fixed MCP config: use `.mcp.json` (NOT `settings.json`) for MCP servers
-4. Fixed `callId` extraction - was nested in `request` object, not top-level
-5. Fixed `taskId`/`contextId` placement in `sendConfirmation` - must be ON
-   message object
-6. **FIXED: Tool approval flow** - stale abort signals from closed HTTP
-   connections
-7. Added 30-minute idle timeout for abandoned tasks
+## Test Structure (MCP Bridge)
 
-Total: 141 tests passing (MCP bridge), 38 tests (coreToolScheduler), 82 tests
-(a2a-server).
+| File                  | Tests | What                         |
+| --------------------- | ----- | ---------------------------- |
+| `index.test.ts`       | 45    | Tool definitions, formatting |
+| `integration.test.ts` | 7     | Real API calls               |
+| `a2a-client.test.ts`  | 28    | HTTP client                  |
+| `mcp-tools.test.ts`   | 30    | Tool schemas                 |
+| `scenarios.test.ts`   | 31    | Usage scenarios              |
 
-## Tool Approval Flow - WORKING
+---
 
-The `autoExecute: false` flow now works correctly:
+## Git Status
 
 ```bash
-# 1. Delegate task (no autoExecute)
-gemini_delegate_task_to_assistant: "Create test.md with hello"
-
-# 2. When pending, approve
-gemini_approve_or_deny_pending_action with decision: "approve"
-
-# 3. Tool executes and response returns (no AbortError!)
+# Current branch: main
+# Uncommitted: docs/memorysystem/ (16 files)
+# Recent commits: tool approval fix, progress notifications, model selection
 ```
 
-**Root cause was:** Stale abort signal from closed HTTP connection. When first
-request's SSE ends, the socket closes and abort signal is set. When second
-request sends approval, the stale signal was still being checked.
+---
 
-**Fix:** Create fresh AbortController when user confirms, and handle concurrent
-executions (primary/secondary) correctly.
+---
 
-See:
+## Session Summary
 
-- `TOOL_APPROVAL_FIX.md` - Technical details of the fix
-- `MCP_A2A_LESSONS_LEARNED.md` - Debugging lessons for future reference
+**What was built:**
+
+- 19 orchestration patterns covering the full agent lifecycle
+- 12+ future ideas for advanced features
+- Complete LanceDB + LadybugDB data schemas
+- Full configuration schema (memory-config.yaml)
+- Topic-based context compression system
+- Pre-check → Main → Review "sandwich" architecture
+
+**Key innovations:**
+
+- Topic compression: Active/dormant/archived with key decisions preserved
+- Failure classification: Route errors to correct fix (test vs code)
+- Draft-Review-Commit: Self-correction loop with governance rules
+- Automatic gotcha injection: Surface past failures before they repeat
+
+**Ready for:** Phase 2 (component deep-dive), prototyping, or real project work
+
+---
+
+_Last updated: 2024-12-21_

@@ -1,6 +1,20 @@
 # Session Handoff - MCP Bridge for Gemini CLI
 
-**Date:** 2024-12-20 **Status:** COMPLETE - All features working
+**Date:** 2024-12-21 **Status:** MCP Bridge COMPLETE, Memory System DOCUMENTED
+
+## Current Focus: Memory System Architecture
+
+**Location:** `docs/memorysystem/`
+
+Multi-agent orchestration fabric with persistent memory. **19 patterns
+documented, ready for prototyping.**
+
+**Tech Stack (Decided):**
+
+- LanceDB (vectors + metadata)
+- LadybugDB (graph relationships)
+- OpenAI-compatible embeddings (ollama, vLLM, etc.)
+- Matryoshka embeddings for fast search → rerank
 
 ## Recent Fix: Tool Approval Flow
 
@@ -217,3 +231,51 @@ Model selection required changes in a2a-server:
   details
 - [MCP_A2A_LESSONS_LEARNED.md](./MCP_A2A_LESSONS_LEARNED.md) - Debugging lessons
   for MCP-A2A integration
+
+---
+
+## Memory System Documentation (NEW)
+
+**Location:** `docs/memorysystem/`
+
+**Purpose:** Multi-agent orchestration fabric with persistent memory.
+
+**Key Files:**
+
+- `README.md` - Vision and architecture overview
+- `DOCS_STRATEGY.md` - Phased documentation work plan
+- `05-orchestration.md` - 11+ orchestration patterns
+- `12-technology-decisions.md` - LanceDB + LadybugDB decisions
+- `analysis/FULL_ORCHESTRATION_ANALYSIS.md` - Subagent analysis findings
+
+**Technology Decisions:**
+
+- **LanceDB** - Vector storage + metadata (embedded, Pydantic models)
+- **LadybugDB** - Graph relationships (embedded, Cypher queries)
+- **OpenAI-compatible API** - Embeddings (ollama, vLLM, etc.)
+- **Matryoshka embeddings** - Nesting doll dimensions for fast search
+
+**Progress (DOCS_STRATEGY.md):**
+
+- Phase 1: **COMPLETE** - Schema, retrieval, config docs updated
+- Patterns 16-19: **COMPLETE** - Pre-check, draft-review-commit, failure
+  classification, topic compression
+- Future Ideas: **COMPLETE** - 16-future-ideas.md with 12+ advanced patterns
+- Phase 2: Pending - Component deep-dive
+- Phase 3: Pending - Integration & API
+- Phase 4: Pending - Gemini Pro reviews
+
+**Documentation Stats:**
+
+- 17 markdown files in docs/memorysystem/
+- 19 orchestration patterns (05-orchestration.md)
+- 12+ future ideas (16-future-ideas.md)
+- All uncommitted, ready for review
+
+**Next Steps:**
+
+1. Phase 2: Enhance component docs (memory cores, working memory, code index,
+   agent roles)
+2. Apply subagent findings from analysis/FULL_ORCHESTRATION_ANALYSIS.md
+3. Start prototyping with real project
+4. Framework memory cores will be built organically per project
