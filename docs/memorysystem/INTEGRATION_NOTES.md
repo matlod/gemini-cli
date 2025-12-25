@@ -575,17 +575,602 @@ enableHooks: boolean; // Enables hook system
 
 ---
 
-## 10. Next Steps
+## 10. Detailed Execution Flow Analysis
 
-1. **Investigate hooks deeper** - Can we use `BeforeModelHook` to inject context
-   without core changes?
-2. **Prototype Option B** - IDE context pattern seems most promising for dynamic
-   retrieval
-3. **Decide on storage location** - Where do memory cores live?
-   `~/.gemini/cores/` or project-local?
-4. **Minimal MVP** - Just wire LanceDB into system prompt to prove the pattern
-   works
+Understanding the exact order of operations is critical for memory injection:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    sendMessageStream() EXECUTION ORDER                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│  1. BeforeAgent Hook (client.ts:410-437)                                     │
+│     └── Can add additionalContext → APPENDED TO REQUEST (not history)        │
+│     └── Becomes part of user message, then flows to history                  │
+│                                                                               │
+│  2. Compression Check (client.ts:480)                                        │
+│     └── Uses CURRENT history (before IDE/memory injection)                   │
+│     └── If triggered: startChat() rebuilds with compressed history           │
+│                                                                               │
+│  3. Pending Tool Call Check (client.ts:491-497)                              │
+│     └── If model's last message has functionCall → SKIP context injection    │
+│     └── API requires functionResponse immediately after functionCall          │
+│                                                                               │
+│  4. IDE Context Injection (client.ts:499-511)                                │
+│     └── Adds to HISTORY as user message                                      │
+│     └── Only if ideMode && !hasPendingToolCall                               │
+│                                                                               │
+│  5. ═══ OUR INJECTION POINT WOULD BE HERE ═══                                │
+│     └── After IDE context, before turn.run()                                 │
+│                                                                               │
+│  6. Turn.run() (client.ts:553)                                               │
+│     └── geminiChat.sendMessageStream()                                       │
+│         └── BeforeModel Hook (geminiChat.ts:449-506)                         │
+│             └── Can modify contents (what's sent THIS turn)                  │
+│             └── NOT history - just the current request                       │
+│         └── BeforeToolSelection Hook                                         │
+│         └── API call                                                         │
+│         └── AfterModel Hook (per chunk)                                      │
+│                                                                               │
+│  7. AfterAgent Hook (client.ts:631-654)                                      │
+│     └── Can force continuation                                               │
+│                                                                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-_Last updated: 2024-12-25_
+## 11. Potential Interaction Issues & Risks
+
+### Issue 1: Compression Timing
+
+**The Problem:**
+
+```
+Timeline:
+  Turn N-1: Memory context A injected → now in history
+  Turn N:   Compression triggers (line 480)
+            └── Memory context A IS in history being compressed
+            └── IDE context injection (line 499-511) happens AFTER
+            └── Our memory injection would happen AFTER
+            └── NEW memory context B not yet in history
+```
+
+**Risk Level:** LOW
+
+**Why it's OK:**
+
+- Compression preserves `<key_knowledge>` - important facts survive
+- Memory context is designed to be re-retrieved when relevant
+- Static system prompt context is never compressed
+
+**Mitigation:**
+
+- Format memory injections to be compression-friendly (use clear labels)
+- Consider: `## Memory Core Context\n- Key fact 1\n- Key fact 2`
+
+---
+
+### Issue 2: Pending Tool Call Guard
+
+**The Problem:**
+
+```typescript
+// client.ts:491-497
+const hasPendingToolCall =
+  lastMessage?.role === 'model' &&
+  lastMessage.parts?.some((p) => 'functionCall' in p);
+
+if (this.config.getIdeMode() && !hasPendingToolCall) {
+  // IDE context injection
+}
+```
+
+During multi-tool-call chains, context injection is SKIPPED.
+
+**Risk Level:** LOW-MEDIUM
+
+**Why it might be OK:**
+
+- Tool chains usually operate on established context
+- Injecting mid-chain could confuse the model
+- Context will be injected on the next "real" user turn
+
+**Risk:**
+
+- Long tool chains lose opportunity for fresh memory retrieval
+- If user's intent shifts mid-chain, we miss it
+
+**Mitigation:**
+
+- Accept this limitation (matches IDE context behavior)
+- OR: Track "turns since last memory injection" and force on next opportunity
+
+---
+
+### Issue 3: LocalAgentExecutor (Subagents) Have Separate Flow
+
+**The Problem:**
+
+```typescript
+// local-executor.ts - Subagents have:
+// - Their own compression service (line 155)
+// - Their own system prompt building (lines 999-1034)
+// - NO IDE context injection
+// - NO BeforeAgent/AfterAgent hooks (run in YOLO mode)
+```
+
+**Risk Level:** MEDIUM
+
+**Impact:**
+
+- Subagents (Task tool spawns) won't get per-turn memory injection
+- They only get what's in their system prompt
+
+**Mitigation Options:**
+
+1. **Accept it:** Subagents are short-lived, focused tasks
+2. **Inject in subagent system prompt:** Add memory context in
+   `buildSystemPrompt()`
+3. **Pass context via inputs:** Parent passes relevant context in task
+   description
+
+---
+
+### Issue 4: BeforeModel Hook Modifies Request, Not History
+
+**The Problem:**
+
+```typescript
+// geminiChatHookTriggers.ts:112-123
+// BeforeModel can return modifiedContents
+
+// geminiChat.ts:479-484
+if (beforeModelResult.modifiedContents) {
+  contentsToUse = beforeModelResult.modifiedContents; // <- Current request only!
+}
+```
+
+BeforeModel modifies what's sent THIS turn, not persistent history.
+
+**Risk Level:** LOW (just understanding)
+
+**Impact:**
+
+- Hook-based injection via BeforeModel won't persist in history
+- Context would need re-injection every turn
+- Compression won't see hook-injected content (it's not in history)
+
+**Comparison to IDE Context Pattern:** | Approach | Persists in History |
+Compressed | Re-injected Each Turn |
+|----------|---------------------|------------|----------------------| | IDE
+Context (addHistory) | Yes | Yes | Delta only | | BeforeModel Hook | No | No |
+Must re-inject | | BeforeAgent Hook | Yes (via request→history) | Yes | Must
+re-inject |
+
+---
+
+### Issue 5: After Compression, Chat Restarts
+
+**The Problem:**
+
+```typescript
+// client.ts:779-783
+if (info.compressionStatus === CompressionStatus.COMPRESSED) {
+  if (newHistory) {
+    this.chat = await this.startChat(newHistory); // NEW chat session!
+    this.forceFullIdeContext = true;
+  }
+}
+```
+
+**Risk Level:** LOW
+
+**Why it's OK:**
+
+- System prompt is rebuilt (includes static memory context)
+- `forceFullIdeContext = true` means full IDE context on next turn
+- We should do the same for memory context
+
+**Mitigation:**
+
+- Track similar flag: `forceFullMemoryContext`
+- On compression, re-retrieve full memory context
+
+---
+
+### Issue 6: Loop Detection
+
+**The Problem:** Could repeated memory injection trigger loop detection?
+
+```typescript
+// loopDetectionService.ts:29-31
+const TOOL_CALL_LOOP_THRESHOLD = 5;
+const CONTENT_LOOP_THRESHOLD = 10;
+```
+
+**Risk Level:** VERY LOW
+
+**Why it's OK:**
+
+- Loop detection looks at tool calls and content patterns
+- Memory context is injected as user messages, not model output
+- The model's responses would need to loop, not our injections
+
+---
+
+### Issue 7: Token Budget Competition
+
+**The Problem:**
+
+```
+System Prompt Budget:
+├── Base prompt (~X tokens)
+├── GEMINI.md content (variable)
+├── MCP instructions (variable)
+└── Memory Core context (NEW - variable) ← Competes for space
+
+Per-Turn Budget:
+├── IDE context (variable, delta-compressed)
+├── Memory context (NEW - variable)       ← Competes for space
+└── Actual conversation
+```
+
+**Risk Level:** MEDIUM
+
+**Impact:**
+
+- Too much memory context → less room for conversation
+- System prompt memory eats "premium" never-compressed tokens
+- Per-turn memory adds to history → faster compression trigger
+
+**Mitigation:**
+
+- **Budget management:** Cap memory injection at N tokens
+- **Relevance scoring:** Only inject high-confidence matches
+- **Tiered approach:**
+  - System prompt: Only critical project-level facts
+  - Per-turn: Only directly relevant patterns
+- **Monitor:** Track token counts, warn if memory eating too much
+
+---
+
+### Issue 8: Retrieval Latency
+
+**The Problem:**
+
+```
+User sends message
+    ↓
+BeforeAgent hook (~10ms)
+    ↓
+Compression check (~50-500ms if triggered)
+    ↓
+Memory retrieval ← NEW (~100-500ms for vector search)
+    ↓
+API call (~500-2000ms)
+```
+
+**Risk Level:** MEDIUM
+
+**Impact:**
+
+- Adds latency to every turn
+- Vector search + embedding = noticeable delay
+- Bad UX if retrieval is slow
+
+**Mitigation:**
+
+- **Async prefetch:** Start retrieval while user is typing
+- **Caching:** Cache embeddings for repeated queries
+- **Local models:** Use local embedding (Ollama) vs API
+- **Timeout:** Cap retrieval at 200ms, proceed without if slow
+- **Background:** Retrieve in background, inject on NEXT turn if late
+
+---
+
+## 12. Hook System Deep Dive (Answered Questions)
+
+### How does BeforeAgent additionalContext work?
+
+```typescript
+// client.ts:431-436
+const additionalContext = hookOutput?.getAdditionalContext();
+if (additionalContext) {
+  const requestArray = Array.isArray(request) ? request : [request];
+  request = [...requestArray, { text: additionalContext }];
+}
+```
+
+- Context is APPENDED to the user's request
+- Becomes part of the user message in history
+- Compression CAN see it (it's in history)
+- Re-injection needed each turn (hook runs each turn)
+
+### BeforeModel hook modifies contents how?
+
+```typescript
+// geminiChat.ts:479-484
+if (beforeModelResult.modifiedContents) {
+  contentsToUse = beforeModelResult.modifiedContents as Content[];
+}
+```
+
+- Modifies `contentsToUse` which is sent to API
+- Does NOT modify `this.history`
+- Not persistent - one-time modification
+
+### Can hooks access full history?
+
+```typescript
+// geminiChatHookTriggers.ts:71-88
+const response = await messageBus.request({
+  type: MessageBusType.HOOK_EXECUTION_REQUEST,
+  eventName: 'BeforeModel',
+  input: {
+    llm_request: llmRequest, // Contains contents, not full history
+  },
+});
+```
+
+- BeforeModel gets `contents` (current request)
+- Does NOT get full conversation history
+- To access history, hook would need different mechanism
+
+---
+
+## 13. Recommended Approach (Updated)
+
+Based on interaction analysis:
+
+### For Per-Turn Memory Injection (Option B - IDE Pattern)
+
+```typescript
+// client.ts after line 511
+// IMPORTANT: Also respect hasPendingToolCall guard
+if (!hasPendingToolCall && this.config.getMemoryCoreManager()) {
+  const startTime = Date.now();
+  const memoryContext = await Promise.race([
+    this.config.getMemoryCoreManager().getRelevantContext(request),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 200)), // 200ms timeout
+  ]);
+
+  if (memoryContext && Date.now() - startTime < 200) {
+    this.getChat().addHistory({
+      role: 'user',
+      parts: [{ text: `## Relevant Memory\n${memoryContext}` }],
+    });
+  }
+}
+```
+
+### For Subagent Support
+
+```typescript
+// local-executor.ts in buildSystemPrompt()
+// Add memory context to subagent prompts
+const memoryContext = await this.runtimeContext
+  .getMemoryCoreManager()
+  ?.getTaskContext(this.definition.name);
+
+if (memoryContext) {
+  finalPrompt += `\n\n## Relevant Memory\n${memoryContext}`;
+}
+```
+
+### For Post-Compression Recovery
+
+```typescript
+// client.ts after compression handling
+if (info.compressionStatus === CompressionStatus.COMPRESSED) {
+  if (newHistory) {
+    this.chat = await this.startChat(newHistory);
+    this.forceFullIdeContext = true;
+    this.forceFullMemoryContext = true; // NEW - re-retrieve memory
+  }
+}
+```
+
+---
+
+## 14. Subagent Memory Strategy
+
+Subagents (spawned via Task tool) have a separate execution flow and don't
+receive per-turn memory injection. Instead, we use a **delegation pattern**:
+
+### The Pattern
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     PARENT AGENT (main conversation)                 │
+├─────────────────────────────────────────────────────────────────────┤
+│  Per-Turn:                                                           │
+│    1. User message arrives                                           │
+│    2. Memory retrieval (can take time, quality > speed)             │
+│    3. Inject as history: "## Relevant Memory\n..."                  │
+│    4. Model generates response                                       │
+│                                                                      │
+│  Spawning Subagent:                                                  │
+│    1. Include curated context in task description                   │
+│    2. Ensure search_memory tool is available                        │
+│    3. Subagent can fetch more if needed                             │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                           SUBAGENT                                   │
+├─────────────────────────────────────────────────────────────────────┤
+│  Initial Context:                                                    │
+│    - Task description (with parent-curated memory)                  │
+│    - System prompt from agent definition                            │
+│                                                                      │
+│  During Execution:                                                   │
+│    - Can call search_memory tool for more context                   │
+│    - Can call other tools as defined                                │
+│    - Own compression service handles long sessions                  │
+│                                                                      │
+│  Return:                                                             │
+│    - Results back to parent                                          │
+│    - (Parent could index new learnings discovered)                  │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Why This Works
+
+1. **Parent has full context** - knows conversation history, user intent
+2. **Parent curates** - passes only what's relevant, avoiding noise
+3. **Subagent is autonomous** - can fetch more via tool calls if needed
+4. **No core changes to local-executor.ts** - works with existing architecture
+
+### The Memory Tool for Subagents
+
+```typescript
+{
+  name: 'search_memory',
+  description: 'Search project memory for relevant patterns, conventions, or past solutions',
+  parameters: {
+    type: 'object',
+    properties: {
+      query: {
+        type: 'string',
+        description: 'What to search for'
+      },
+      scope: {
+        type: 'string',
+        enum: ['project', 'global'],
+        default: 'project'
+      }
+    },
+    required: ['query']
+  }
+}
+```
+
+### Context Format for Subagent Tasks
+
+When parent spawns subagent, include context that survives compression:
+
+```typescript
+const taskWithContext = `
+## Task
+${taskDescription}
+
+## Key Context (preserve these facts)
+- Auth uses JWT tokens stored in localStorage
+- API endpoints follow REST conventions at /api/v2/*
+- Tests use vitest, run with 'pnpm test'
+
+## Memory Tools Available
+If you need more context, use the search_memory tool.
+`;
+```
+
+### Tool Availability Decision
+
+**Recommendation: Always available**
+
+| Always Available                 | Opt-In                          |
+| -------------------------------- | ------------------------------- |
+| Simpler - subagents just have it | Parent controls tool budget     |
+| More autonomous                  | Faster if not needed            |
+| Risk: subagent over-fetches      | Risk: parent forgets to include |
+
+The search_memory tool should be registered in the parent's tool registry so
+subagents can reference it by name.
+
+### Considerations
+
+1. **MCP tool access**: If memory is an MCP tool, verify subagents can access
+   via parent registry lookup (local-executor.ts:106-111)
+
+2. **Cost/latency**: Each subagent memory call = embedding + search. For
+   parallel subagents, consider caching or parent pre-fetching.
+
+3. **New learnings capture**: When subagent discovers something useful, who
+   indexes it?
+   - AfterAgent hook on parent sees result → indexes
+   - Subagent has `remember_this` tool
+   - Background transcript analysis
+
+4. **Circular prevention**: Tool execution is synchronous, so memory tool calls
+   won't trigger recursive context injection.
+
+---
+
+## 15. Updated Injection Pattern (Final)
+
+Based on analysis, the recommended injection pattern:
+
+```typescript
+// client.ts after IDE context injection (~line 511)
+// Quality over speed - allow time for good retrieval
+if (!hasPendingToolCall && this.config.getMemoryCoreManager()) {
+  try {
+    // Can make multiple LLM calls if needed for best context
+    const memoryContext = await this.config
+      .getMemoryCoreManager()
+      .getRelevantContext(request);
+
+    if (memoryContext) {
+      this.getChat().addHistory({
+        role: 'user',
+        parts: [{ text: `## Relevant Memory\n${memoryContext}` }],
+      });
+    }
+  } catch (error) {
+    // Log but don't block - memory enhances, doesn't gate
+    debugLogger.warn(`Memory retrieval failed: ${error.message}`);
+    // Optional: emit event for monitoring
+    // coreEvents.emit(CoreEvent.MemoryRetrievalFailed, error);
+  }
+}
+```
+
+Key decisions:
+
+- **No aggressive timeout** - quality context is worth the wait
+- **Error handling** - failures logged but don't block conversation
+- **Respects hasPendingToolCall** - matches IDE context behavior
+
+---
+
+## 16. Next Steps
+
+1. **Implement MemoryCoreManager interface** - define getRelevantContext(),
+   search()
+2. **Create search_memory tool** - for subagent access
+3. **Prototype LanceDB store** - vector storage backend
+4. **Test compression interaction** - verify context survives
+5. **Verify MCP tool access for subagents** - confirm registry lookup works
+6. **Design indexing strategy** - when/how to capture new learnings
+
+---
+
+## 17. Files for External Review
+
+For another LLM to review this design, send these files in order:
+
+```bash
+# 1. Quick context (what we're building)
+cat docs/memorysystem/README.md
+
+# 2. This file (detailed technical analysis)
+cat docs/memorysystem/INTEGRATION_NOTES.md
+
+# 3. The key code file (to verify our understanding)
+cat packages/core/src/core/client.ts
+
+# 4. Subagent executor (to verify tool access)
+cat packages/core/src/agents/local-executor.ts
+```
+
+Ask the reviewer to validate:
+
+- Injection point choice (after IDE context)
+- Subagent delegation pattern
+- Error handling approach
+- Any risks we missed
+
+---
+
+_Last updated: 2024-12-25 (subagent strategy, final injection pattern)_

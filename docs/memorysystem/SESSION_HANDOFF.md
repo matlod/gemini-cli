@@ -1,7 +1,7 @@
 # Memory System - Session Handoff
 
-**Date:** 2024-12-25 **Status:** Deep exploration complete, ready to prototype
-**Key File:** `INTEGRATION_NOTES.md` (comprehensive technical notes)
+**Date:** 2024-12-25 **Status:** Design validated, ready to implement **Key
+File:** `INTEGRATION_NOTES.md` (comprehensive technical notes, 17 sections)
 
 ---
 
@@ -121,20 +121,26 @@ client.ts (after IDE context, ~line 511):
   + }
 ```
 
-### Next Steps (Pick One)
+### Decisions Made
 
-1. **Investigate hooks deeper** - Can we use `BeforeModelHook` for
-   zero-core-change injection?
-2. **Prototype LanceDB store** - Get basic vector storage working
-3. **Wire into system prompt** - Simplest MVP (static context only)
-4. **Pick a real task** - Let requirements emerge from actual use
+1. **Injection point:** After IDE context in client.ts (~line 511)
+2. **No aggressive timeout:** Quality context is worth the wait
+3. **Error handling:** Log failures, don't block conversation
+4. **Subagents:** Parent curates context + search_memory tool available
+
+### Next Steps
+
+1. **Implement MemoryCoreManager interface** - getRelevantContext(), search()
+2. **Create search_memory tool** - for subagent access
+3. **Prototype LanceDB store** - vector storage backend
+4. **Test compression interaction** - verify context survives
 
 ### The User's Style
 
 - Prefers building things organically from real needs
 - Values minimal upstream changes for easy merging
 - Okay with experimentation and iteration
-- Has been away for a few days (holiday travel) - may need refreshers
+- Prefers quality over speed - will block for good context
 
 ### Key Code Locations
 
@@ -157,9 +163,16 @@ packages/core/src/
 
 - Where should memory cores live? `~/.gemini/cores/` or project-local
   `.gemini/cores/`?
-- What's the exact hook output format for content injection?
-- How do we handle retrieval latency? Async? Cache?
 - What embedding model to use? Local (ollama) or API?
+- How to index new learnings from subagent discoveries?
+- Should search_memory tool be always-available or opt-in for subagents?
+
+### Questions Answered
+
+- Hook output format: BeforeAgent appends to request (→history), BeforeModel
+  modifies contents (not history)
+- Retrieval latency: Block for quality, no aggressive timeout, error handling
+- Subagent context: Parent curates + tool access for more
 
 ---
 
@@ -186,15 +199,15 @@ ls -la docs/memorysystem/
 
 ## TL;DR for Future Claude
 
-1. Read `INTEGRATION_NOTES.md` first - it has all the technical details
-2. The IDE context pattern is our template - inject as user message per-turn
-3. Hybrid approach: static project context + dynamic semantic retrieval
-4. Minimal upstream changes: just add retrieval call after IDE context injection
-5. User prefers organic, real-task-driven development
+1. Read `INTEGRATION_NOTES.md` first - it has 17 sections of technical details
+2. **Injection point:** After IDE context in client.ts:511, as user message
+3. **No timeout:** Quality context worth waiting for, just handle errors
+4. **Subagents:** Parent curates context + search_memory tool for more
+5. **Design validated** - ready to implement
 
-**Start by asking:** "Want to prototype the LanceDB store, investigate hooks, or
-pick a real task to drive this?"
+**Start by asking:** "Ready to implement MemoryCoreManager, or want to prototype
+the LanceDB store first?"
 
 ---
 
-_Last updated: 2024-12-25_
+_Last updated: 2024-12-25 (design validated, subagent strategy decided)_
