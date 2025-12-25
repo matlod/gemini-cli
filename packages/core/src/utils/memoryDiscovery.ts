@@ -571,7 +571,31 @@ export async function refreshServerHierarchicalMemory(config: Config) {
   );
   const mcpInstructions =
     config.getMcpClientManager()?.getMcpInstructions() || '';
-  const finalMemory = [result.memoryContent, mcpInstructions.trimStart()]
+
+  // --- STATIC MEMORY LAYER ---
+  // Inject curated project memory from memory cores into system prompt
+  let projectCoreMemory = '';
+  const memoryCoreManager = config.getMemoryCoreManager();
+  if (memoryCoreManager) {
+    try {
+      projectCoreMemory = await memoryCoreManager.getProjectCoreMemory();
+      if (projectCoreMemory) {
+        projectCoreMemory = `## Memory Core: Project Context\n\n${projectCoreMemory}`;
+      }
+    } catch (error) {
+      // Log warning but don't block - never break memory loading
+      debugLogger.warn(
+        `Failed to load project core memory: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
+  }
+  // --- END STATIC MEMORY LAYER ---
+
+  const finalMemory = [
+    result.memoryContent,
+    mcpInstructions.trimStart(),
+    projectCoreMemory,
+  ]
     .filter(Boolean)
     .join('\n\n');
   config.setUserMemory(finalMemory);

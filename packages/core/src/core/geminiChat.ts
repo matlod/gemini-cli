@@ -54,6 +54,8 @@ import {
   fireBeforeModelHook,
   fireBeforeToolSelectionHook,
 } from './geminiChatHookTriggers.js';
+import { formatMemoryHits } from '../memory/formatters.js';
+import { debugLogger } from '../utils/debugLogger.js';
 
 export enum StreamEventType {
   /** A regular content chunk from the API. */
@@ -504,6 +506,61 @@ export class GeminiChat {
           config.tools = toolSelectionResult.tools as Tool[];
         }
       }
+
+      // --- MEMORY INJECTION (EPHEMERAL) ---
+      // Inject relevant memories into contentsToUse (NOT history)
+      // This is ephemeral - fresh each turn, never compressed
+      const memoryCoreManager = this.config.getMemoryCoreManager();
+      if (this.config.isMemoryCoresEnabled() && memoryCoreManager) {
+        // Check for pending tool call - don't inject between functionCall/functionResponse
+        // Only check the message immediately before the last user message
+        const lastIdx = contentsToUse.length - 1;
+        const prevMessage =
+          lastIdx > 0 ? contentsToUse[lastIdx - 1] : undefined;
+        const hasPendingToolCall =
+          prevMessage?.role === 'model' &&
+          prevMessage.parts?.some((p) => 'functionCall' in p);
+
+        if (!hasPendingToolCall && !abortSignal.aborted) {
+          try {
+            // Get the last user message for retrieval
+            const lastUserContent = contentsToUse[contentsToUse.length - 1];
+            if (lastUserContent && lastUserContent.role === 'user') {
+              const hits = await memoryCoreManager.retrieveRelevant(
+                lastUserContent.parts ?? [],
+                { signal: abortSignal, minSimilarity: 0.75 },
+              );
+
+              if (hits.length > 0 && !abortSignal.aborted) {
+                const memoryText = formatMemoryHits(hits);
+                if (memoryText) {
+                  // Append memory as additional part to the existing user message
+                  // This preserves turn structure (no extra user message)
+                  const existingParts = lastUserContent.parts ?? [];
+                  contentsToUse = [
+                    ...contentsToUse.slice(0, -1),
+                    {
+                      role: 'user' as const,
+                      parts: [{ text: memoryText }, ...existingParts],
+                    },
+                  ];
+                  debugLogger.log(
+                    `Memory injection: ${hits.length} hits prepended to user message`,
+                  );
+                }
+              }
+            }
+          } catch (error) {
+            // Log warning but don't block - never break the conversation
+            if (!abortSignal.aborted) {
+              debugLogger.warn(
+                `Memory retrieval failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              );
+            }
+          }
+        }
+      }
+      // --- END MEMORY INJECTION ---
 
       // Track final request parameters for AfterModel hooks
       lastModelToUse = modelToUse;

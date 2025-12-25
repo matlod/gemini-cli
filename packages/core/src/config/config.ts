@@ -30,6 +30,7 @@ import { ShellTool } from '../tools/shell.js';
 import { WriteFileTool } from '../tools/write-file.js';
 import { WebFetchTool } from '../tools/web-fetch.js';
 import { MemoryTool, setGeminiMdFilename } from '../tools/memoryTool.js';
+import { SearchMemoryTool } from '../tools/search-memory.js';
 import { WebSearchTool } from '../tools/web-search.js';
 import { GeminiClient } from '../core/client.js';
 import { BaseLlmClient } from '../core/baseLlmClient.js';
@@ -95,6 +96,7 @@ import { getExperiments } from '../code_assist/experiments/experiments.js';
 import { ExperimentFlags } from '../code_assist/experiments/flagNames.js';
 import { debugLogger } from '../utils/debugLogger.js';
 import { startupProfiler } from '../telemetry/startupProfiler.js';
+import type { MemoryCoreManager } from '../memory/types.js';
 
 import { ApprovalMode } from '../policy/types.js';
 
@@ -328,6 +330,7 @@ export interface ConfigParameters {
   previewFeatures?: boolean;
   enableAgents?: boolean;
   experimentalJitContext?: boolean;
+  enableMemoryCores?: boolean;
 }
 
 export class Config {
@@ -450,6 +453,8 @@ export class Config {
 
   private readonly experimentalJitContext: boolean;
   private contextManager?: ContextManager;
+  private readonly enableMemoryCores: boolean;
+  private memoryCoreManager?: MemoryCoreManager;
   private terminalBackground: string | undefined = undefined;
 
   constructor(params: ConfigParameters) {
@@ -512,6 +517,7 @@ export class Config {
     this._activeModel = params.model;
     this.enableAgents = params.enableAgents ?? false;
     this.experimentalJitContext = params.experimentalJitContext ?? false;
+    this.enableMemoryCores = params.enableMemoryCores ?? false;
     this.modelAvailabilityService = new ModelAvailabilityService();
     this.previewFeatures = params.previewFeatures ?? undefined;
     this.maxSessionTurns = params.maxSessionTurns ?? -1;
@@ -1085,6 +1091,18 @@ export class Config {
     return this.experimentalJitContext;
   }
 
+  isMemoryCoresEnabled(): boolean {
+    return this.enableMemoryCores;
+  }
+
+  getMemoryCoreManager(): MemoryCoreManager | undefined {
+    return this.memoryCoreManager;
+  }
+
+  setMemoryCoreManager(manager: MemoryCoreManager | undefined): void {
+    this.memoryCoreManager = manager;
+  }
+
   getGeminiMdFileCount(): number {
     return this.geminiMdFileCount;
   }
@@ -1609,6 +1627,11 @@ export class Config {
     registerCoreTool(ShellTool, this);
     registerCoreTool(MemoryTool);
     registerCoreTool(WebSearchTool, this);
+    // Register SearchMemoryTool if memory cores are enabled
+    // Note: Manager may be set later (async init), tool handles missing manager gracefully
+    if (this.isMemoryCoresEnabled()) {
+      registerCoreTool(SearchMemoryTool, this);
+    }
     if (this.getUseWriteTodos()) {
       registerCoreTool(WriteTodosTool, this);
     }
