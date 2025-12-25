@@ -1,7 +1,7 @@
 # Memory System - Session Handoff
 
-**Date:** 2024-12-25 **Status:** Design validated, ready to implement **Key
-File:** `INTEGRATION_NOTES.md` (comprehensive technical notes, 17 sections)
+**Date:** 2024-12-25 **Status:** Design finalized, ready to implement **Key
+File:** `INTEGRATION_NOTES.md` (comprehensive technical notes, 19 sections)
 
 ---
 
@@ -19,52 +19,59 @@ AI agents "remember" useful information across sessions.
 3. **Discovered the IDE context pattern** - the key insight for our approach
 4. **Documented everything** in `INTEGRATION_NOTES.md`
 
-### The Key Insight: IDE Context Pattern
+### The Key Insight: Ephemeral Injection (NOT History)
 
-This is the most important discovery. Gemini-cli already injects dynamic context
-per-turn:
+After iteration with external reviews, we chose **ephemeral injection** over
+history-based injection:
 
 ```typescript
-// client.ts lines 499-511
-if (this.config.getIdeMode()) {
-  this.getChat().addHistory({
-    role: 'user',
-    parts: [{ text: contextParts.join('\n') }], // Just a user message!
-  });
-}
+// geminiChat.ts - inject into contentsToUse, NOT addHistory
+// Memory is sent for THIS turn only, not stored in history
+
+contentsToUse = [
+  ...contentsToUse.slice(0, -1), // All but user request
+  { role: 'user', parts: [{ text: memoryContext }] }, // Memory
+  contentsToUse[contentsToUse.length - 1], // User request last
+];
 ```
 
-**Why this matters for memory cores:**
+**Why ephemeral beats history-based:**
 
-- We can inject retrieved context the same way
-- It's dynamic (adapts to each user question via semantic search)
-- It goes through history → gets compressed → key facts preserved
-- Minimal code changes needed
+| History-based (addHistory) | Ephemeral (contentsToUse) |
+| -------------------------- | ------------------------- |
+| Accumulates over turns     | Fresh each turn           |
+| Gets compressed → degraded | Never compressed          |
+| Needs deduplication logic  | No dedupe needed          |
+| Bloats context             | Clean, targeted           |
 
-### The Architecture We're Leaning Towards
+**Result:** Simpler architecture, no compression drift, no dedup complexity.
+
+### The Final Architecture (Hybrid)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     SYSTEM PROMPT (static)                       │
+│              LAYER 1: SYSTEM PROMPT (static, curated)            │
 │  ├── Base prompt (prompts.ts)                                    │
 │  ├── GEMINI.md content (hierarchical discovery)                  │
 │  ├── MCP server instructions                                     │
-│  └── Memory Core: Project context ← NEW (conventions, arch)     │
+│  └── Memory Core: Project context ← NEW (arch, conventions)     │
+│                                                                  │
+│  • Refreshed via /memory refresh                                 │
+│  • Always present, never compressed                              │
+│  • Curated, stable invariants                                    │
 ├─────────────────────────────────────────────────────────────────┤
-│                     PER-TURN HISTORY (dynamic)                   │
-│  ├── Initial setup (date, folder structure)                      │
-│  ├── IDE context (active file, cursor, selection)                │
-│  ├── Memory Core: Relevant patterns ← NEW (semantic retrieval)  │
-│  └── User messages + Model responses                             │
+│         LAYER 2: EPHEMERAL INJECTION (dynamic, per-turn)         │
+│                                                                  │
+│  • Semantic retrieval based on user's question                   │
+│  • Injected into contentsToUse (NOT history)                     │
+│  • Fresh each turn, no accumulation                              │
+│  • Wrapped with <memory> tags + "Reference Only" framing         │
+│  • External audit via Langfuse/proxy (not in history)            │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**Hybrid approach:**
-
-1. **Static layer:** Project-level context in system prompt (refreshes on
-   `/memory refresh`)
-2. **Dynamic layer:** Semantic retrieval per-turn based on user's actual
-   question
+**Key insight:** Dynamic memory is ephemeral. It's injected, used, and
+discarded. Re-retrieval is the source of truth, not persistence.
 
 ### Files You Need to Read
 
@@ -108,32 +115,45 @@ config.ts:
   + memoryCoreManager?: MemoryCoreManager
   + enableMemoryCores?: boolean
 
-client.ts (after IDE context, ~line 511):
-  + if (this.config.getMemoryCoreManager()) {
-  +   const context = await this.config.getMemoryCoreManager()
-  +     .getRelevantContext(request);
-  +   if (context) {
-  +     this.getChat().addHistory({
-  +       role: 'user',
-  +       parts: [{ text: context }],
-  +     });
+memoryDiscovery.ts (for static layer):
+  + projectCoreMemory = await manager.getProjectCoreMemory()
+  + finalMemory = [..., projectCoreMemory].join("\n\n")
+
+geminiChat.ts (for dynamic layer - EPHEMERAL):
+  + if (!hasPendingToolCall && manager) {
+  +   const hits = await manager.retrieveRelevant(request, { signal });
+  +   if (hits.length > 0) {
+  +     // Inject into contentsToUse, NOT addHistory()
+  +     contentsToUse = [..., memoryMessage, userRequest];
   +   }
   + }
 ```
 
 ### Decisions Made
 
-1. **Injection point:** After IDE context in client.ts (~line 511)
-2. **No aggressive timeout:** Quality context is worth the wait
-3. **Error handling:** Log failures, don't block conversation
-4. **Subagents:** Parent curates context + search_memory tool available
+1. **Ephemeral injection:** Dynamic memory injected into contentsToUse, NOT
+   history
+2. **Two layers:** Static (system prompt) + Dynamic (ephemeral per-turn)
+3. **No deduplication needed:** Ephemeral = no accumulation
+4. **No compression concerns:** Memory never enters history
+5. **Quality over speed:** Block for good retrieval, no aggressive timeout
+6. **Relevance over caps:** Filter by similarity, not arbitrary token limits
+7. **Subagents:** Parent curates context + search_memory tool available
+8. **External audit:** Use Langfuse/proxy, not history persistence
 
-### Next Steps
+### Next Steps (Phased)
 
-1. **Implement MemoryCoreManager interface** - getRelevantContext(), search()
-2. **Create search_memory tool** - for subagent access
-3. **Prototype LanceDB store** - vector storage backend
-4. **Test compression interaction** - verify context survives
+**Phase 1: Foundation**
+
+1. MemoryCoreManager interface with `retrieveRelevant()` returning ranked hits
+2. LanceDB store prototype
+3. `search_memory` tool for subagents
+
+**Phase 2: Integration** 4. Static layer in
+`refreshServerHierarchicalMemory()` 5. Dynamic layer (ephemeral) in
+`geminiChat.sendMessageStream()`
+
+**Phase 3: Hardening** 6. Relevance filtering, token safety, prompt sanitization
 
 ### The User's Style
 
@@ -169,10 +189,26 @@ packages/core/src/
 
 ### Questions Answered
 
-- Hook output format: BeforeAgent appends to request (→history), BeforeModel
-  modifies contents (not history)
-- Retrieval latency: Block for quality, no aggressive timeout, error handling
-- Subagent context: Parent curates + tool access for more
+- **History vs Ephemeral:** Ephemeral wins (no bloat, no compression, no dedupe)
+- **BeforeModel vs addHistory:** Use contentsToUse modification, not addHistory
+- **Deduplication:** Not needed with ephemeral approach
+- **Compression:** Not a concern - memory never enters history
+- **Retrieval latency:** Block for quality, no aggressive timeout
+- **Subagent context:** Parent curates + search_memory tool
+
+### External Review Summary
+
+Three external reviews validated the architecture. Key finding: **ephemeral
+injection resolves most originally-identified issues**.
+
+Remaining concerns (addressed in design):
+
+- Token overflow near limit → relevance filtering
+- AbortSignal → wired through retrieveRelevant()
+- Prompt injection → `<memory>` tags + "Reference Only" framing
+- Subagent context → search_memory tool + parent curation
+
+See `INTEGRATION_NOTES.md` Sections 15-16 for full details.
 
 ---
 
@@ -199,15 +235,16 @@ ls -la docs/memorysystem/
 
 ## TL;DR for Future Claude
 
-1. Read `INTEGRATION_NOTES.md` first - it has 17 sections of technical details
-2. **Injection point:** After IDE context in client.ts:511, as user message
-3. **No timeout:** Quality context worth waiting for, just handle errors
-4. **Subagents:** Parent curates context + search_memory tool for more
-5. **Design validated** - ready to implement
+1. Read `INTEGRATION_NOTES.md` - 19 sections with final architecture
+2. **EPHEMERAL injection:** Dynamic memory goes into contentsToUse, NOT history
+3. **Two layers:** Static (system prompt) + Dynamic (ephemeral per-turn)
+4. **No dedupe/compression concerns:** Ephemeral = fresh each turn
+5. **Subagents:** Parent curates + search_memory tool
+6. **Design finalized** - phased implementation plan ready
 
-**Start by asking:** "Ready to implement MemoryCoreManager, or want to prototype
-the LanceDB store first?"
+**Start by asking:** "Ready to implement Phase 1 (MemoryCoreManager interface +
+LanceDB)?"
 
 ---
 
-_Last updated: 2024-12-25 (design validated, subagent strategy decided)_
+_Last updated: 2024-12-25 (ephemeral injection architecture finalized)_
