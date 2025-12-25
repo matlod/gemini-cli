@@ -101,8 +101,14 @@ await nudge({
 
 **Injection into Agent Context:**
 
+> **Note (2024-12-25):** Like dynamic memory, nudges are injected
+> **ephemerally** into `contentsToUse` for the current turn only. They are NOT
+> added to chat history via `addHistory()`. This prevents accumulation and
+> ensures clean context per turn.
+
 ```typescript
-// When agent starts next turn, nudges are prepended to context
+// When agent starts next turn, nudges are injected into contentsToUse (EPHEMERAL)
+// NOT added to chat history - this prevents accumulation
 function buildAgentContext(agent: Agent): string {
   const pendingNudges = await getNudgesForAgent(agent.id);
 
@@ -118,6 +124,7 @@ function buildAgentContext(agent: Agent): string {
   }
 
   context += buildRegularContext(agent);
+  // This context is injected via contentsToUse, NOT addHistory()
   return context;
 }
 ```

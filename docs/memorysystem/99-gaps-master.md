@@ -80,16 +80,30 @@ These block core architecture decisions.
 
 ### Working Memory (03)
 
-- [ ] What's the maximum size of working memory before it gets unwieldy?
-- [ ] How do we handle working memory for very long-running workflows
-      (days/weeks)?
-- [ ] What's the conflict resolution when multiple agents write simultaneously?
+**Note (2024-12-25):** Many of these questions are **RESOLVED** by the ephemeral
+injection architecture. Dynamic memory is injected per-turn into
+`contentsToUse`, NOT stored in chat history. Re-retrieval each turn is the
+source of truth.
+
+- [x] ~~What's the maximum size of working memory before it gets unwieldy?~~ →
+      **RESOLVED:** Ephemeral injection = no accumulation, size controlled by
+      relevance filtering per-turn
+- [x] ~~How do we handle working memory for very long-running workflows
+      (days/weeks)?~~ → **RESOLVED:** Fresh retrieval each turn, no persistence
+      issues
+- [x] ~~What's the conflict resolution when multiple agents write
+      simultaneously?~~ → **RESOLVED:** Each turn is independent, no write
+      conflicts
 - [ ] How do we handle task graph cycles (circular dependencies)?
-- [ ] What happens to working memory if orchestrator dies?
-- [ ] How do we garbage collect old/stale working memories?
-- [ ] Should working memory have access controls per agent?
+- [x] ~~What happens to working memory if orchestrator dies?~~ → **RESOLVED:**
+      No persistent working memory state, just re-retrieve
+- [x] ~~How do we garbage collect old/stale working memories?~~ → **RESOLVED:**
+      Nothing to garbage collect (ephemeral)
+- [x] ~~Should working memory have access controls per agent?~~ → **RESOLVED:**
+      Context is per-turn injection, not shared persistent state
 - [ ] How do we handle branching workflows (A or B paths)?
-- [ ] What's the notification mechanism when things change?
+- [x] ~~What's the notification mechanism when things change?~~ → **RESOLVED:**
+      Not needed - context refreshed each turn anyway
 - [ ] How do we visualize working memory state for humans?
 - [ ] Should artifacts be stored inline or by reference?
 - [ ] How do we handle partial failures (some tasks done, some failed)?
@@ -323,12 +337,14 @@ Must answer:
 
 Track decisions as we make them.
 
-| Date       | Decision                           | Rationale                                               | Docs Updated               |
-| ---------- | ---------------------------------- | ------------------------------------------------------- | -------------------------- |
-| 2024-12-20 | LanceDB for vectors + metadata     | Embedded, serverless, Lance format, hybrid search       | 12-technology-decisions.md |
-| 2024-12-20 | LadybugDB for graph                | Embedded, Cypher, ACID, C++ core, fast traversal        | 12-technology-decisions.md |
-| 2024-12-20 | OpenAI-compatible embedding API    | Agnostic to provider, config-driven, matryoshka support | 12-technology-decisions.md |
-| 2024-12-20 | OpenAI-compatible LLM API (future) | Gemini now, OpenRouter/local later, role-based routing  | 12-technology-decisions.md |
+| Date       | Decision                               | Rationale                                               | Docs Updated               |
+| ---------- | -------------------------------------- | ------------------------------------------------------- | -------------------------- |
+| 2024-12-20 | LanceDB for vectors + metadata         | Embedded, serverless, Lance format, hybrid search       | 12-technology-decisions.md |
+| 2024-12-20 | LadybugDB for graph                    | Embedded, Cypher, ACID, C++ core, fast traversal        | 12-technology-decisions.md |
+| 2024-12-20 | OpenAI-compatible embedding API        | Agnostic to provider, config-driven, matryoshka support | 12-technology-decisions.md |
+| 2024-12-20 | OpenAI-compatible LLM API (future)     | Gemini now, OpenRouter/local later, role-based routing  | 12-technology-decisions.md |
+| 2024-12-25 | Ephemeral injection for dynamic memory | No history bloat, no compression, no dedupe needed      | INTEGRATION_NOTES.md       |
+| 2024-12-25 | Two-layer hybrid: static + dynamic     | Static in system prompt, dynamic ephemeral per-turn     | INTEGRATION_NOTES.md       |
 
 ---
 

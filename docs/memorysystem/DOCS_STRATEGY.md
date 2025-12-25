@@ -108,12 +108,13 @@ P2-A: Enhance 02-memory-cores.md
 - Expand bootstrap strategy section
 
 P2-B: Enhance 03-working-memory.md
-- Read: 12-technology-decisions.md, 05-orchestration.md
+- Read: 12-technology-decisions.md, 05-orchestration.md, INTEGRATION_NOTES.md
 - Add: Task graph stored in LadybugDB (Cypher examples)
 - Add: State machine diagram for task lifecycle
-- Add: Concurrent write handling
-- Add: Working memory → memory core promotion flow
-- Add: Archival strategy
+- Add: Clarify ephemeral injection model (memory injected per-turn into
+  contentsToUse, NOT persisted in chat history)
+- NOTE: Archival/promotion flows are NOT needed with ephemeral approach
+- NOTE: Re-retrieval each turn is source of truth, not persistence
 
 P2-C: Enhance 11-code-index.md
 - Read: 13-configuration.md (from Phase 1)

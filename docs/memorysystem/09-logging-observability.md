@@ -61,10 +61,14 @@ await log.toolUse('Bash', {
 });
 
 // Memory access logs
-await log.memory('Queried auth-jwt core', {
+// NOTE: Dynamic memory is ephemeral (injected per-turn, not stored in history).
+// Log the retrieval operation, not "used_entries" (source of truth is re-retrieval).
+await log.memory('Retrieved context for turn', {
   query: 'refresh token rotation',
   results_count: 3,
-  used_entries: ['jwt-001', 'jwt-003'],
+  retrieval_duration_ms: 145,
+  injected_tokens: 420, // How much was injected this turn
+  // Entries are ephemeral - logged for debugging, not as persistent state
 });
 
 // Git operation logs
