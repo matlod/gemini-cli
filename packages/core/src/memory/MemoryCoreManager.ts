@@ -127,7 +127,7 @@ export class LanceDBMemoryCoreManager implements MemoryCoreManager {
    * Legacy constructor support for MemoryConfig.
    * Creates a manager with uninitialized store/embeddings for backward compatibility.
    *
-   * @deprecated Use the options-based constructor instead
+   * @deprecated Use the options-based constructor or createWithAutoProvider instead
    */
   static fromConfig(_config: MemoryConfig): LanceDBMemoryCoreManager {
     // This is a stub for backward compatibility during migration
@@ -141,6 +141,76 @@ export class LanceDBMemoryCoreManager implements MemoryCoreManager {
       store: createNoOpStore(),
       embeddings: createNoOpEmbeddings(),
     });
+  }
+
+  /**
+   * Create a fully configured memory manager with automatic provider detection.
+   *
+   * Uses the provider ladder to select the best available embedding provider:
+   * 1. OpenAI (if OPENAI_API_KEY set)
+   * 2. Ollama (if reachable at localhost:11434)
+   * 3. FastEmbed (always available, ONNX-based)
+   *
+   * @param options - Configuration options
+   * @returns Initialized memory manager ready for use
+   *
+   * @example
+   * ```typescript
+   * const manager = await LanceDBMemoryCoreManager.createWithAutoProvider({
+   *   dbPath: '/path/to/memory.lance',
+   *   llmCall: async (prompt, signal) => {
+   *     const response = await geminiClient.generateContent(prompt);
+   *     return response.text();
+   *   },
+   * });
+   *
+   * const hits = await manager.retrieveRelevant('How do I handle errors?');
+   * ```
+   */
+  static async createWithAutoProvider(options: {
+    /** Path to LanceDB database directory */
+    dbPath: string;
+    /** LLM call function for relevance filtering (optional) */
+    llmCall?: (prompt: string, signal?: AbortSignal) => Promise<string>;
+  }): Promise<LanceDBMemoryCoreManager> {
+    // Import dynamically to avoid circular deps
+    const { LanceDBStore } = await import('./store/lancedbStore.js');
+    const { EmbeddingProviderFactory } = await import(
+      './embeddings/embeddingProviderFactory.js'
+    );
+
+    // Create embeddings client using provider ladder
+    const factory = new EmbeddingProviderFactory();
+    const embeddings = await factory.createClient();
+
+    const providerInfo = factory.getProviderInfo();
+    if (providerInfo) {
+      debugLogger.log(
+        `MemoryCoreManager: Using ${providerInfo.provider} provider with model ${providerInfo.model} (dim=${providerInfo.dimension})`,
+      );
+    }
+
+    // Create store with embedding space config to ensure table dimension matches
+    const embeddingSpace = providerInfo
+      ? {
+          provider: providerInfo.provider,
+          model: providerInfo.model,
+          dimension: providerInfo.dimension,
+        }
+      : undefined;
+
+    const store = new LanceDBStore(options.dbPath, embeddingSpace);
+
+    // Create and initialize manager
+    const manager = new LanceDBMemoryCoreManager({
+      store,
+      embeddings,
+      llmCall: options.llmCall,
+    });
+
+    await manager.init();
+
+    return manager;
   }
 
   /**

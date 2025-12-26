@@ -16,10 +16,31 @@
 import type { MemoryScope } from '../types.js';
 
 /**
+ * Embedding lineage metadata for tracking vector provenance.
+ * Critical for ensuring we never mix vectors from different embedding spaces.
+ */
+export interface EmbeddingLineage {
+  /** Provider used: 'openai' | 'ollama' | 'fastembed' | 'endpoint' */
+  embedding_provider: string;
+
+  /** Model name (e.g., 'text-embedding-3-small', 'nomic-embed-text') */
+  embedding_model: string;
+
+  /** Vector dimension (e.g., 768, 1536) */
+  embedding_dim: number;
+
+  /** Normalization applied: 'none' | 'l2' */
+  embedding_norm?: string;
+
+  /** Optional version for tracking embedding model updates */
+  embedding_version?: string;
+}
+
+/**
  * A memory entry as stored in the database.
  * Includes the embedding vector for similarity search.
  */
-export interface StoredMemoryEntry {
+export interface StoredMemoryEntry extends Partial<EmbeddingLineage> {
   /** Unique identifier (ULID recommended) */
   id: string;
 
@@ -63,10 +84,31 @@ export interface VectorSearchOptions {
 }
 
 /**
- * Result from vector search, includes similarity score.
+ * Result from vector search, includes both raw distance and computed score.
+ *
+ * ## Distance vs Score
+ *
+ * - `distance`: Raw value from LanceDB (L2 distance by default)
+ * - `score`: Monotonic transform for ranking: `1 / (1 + distance)`
+ *
+ * Use `score` for ranking and filtering. Use `distance` for debugging
+ * or when you need the raw metric value.
+ *
+ * Note: `minScore` in options is heuristic unless you standardize on
+ * cosine metric + L2-normalized embeddings across all providers.
  */
 export interface VectorSearchResult extends StoredMemoryEntry {
-  /** Cosine similarity score (0-1, higher is more similar) */
+  /**
+   * Raw distance from LanceDB (L2 by default, lower is closer).
+   * Use for debugging or when you need the raw metric value.
+   */
+  distance: number;
+
+  /**
+   * Computed similarity score (0-1, higher is more similar).
+   * Monotonic transform: `1 / (1 + distance)`.
+   * Use for ranking and filtering.
+   */
   score: number;
 }
 

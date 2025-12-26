@@ -9,10 +9,15 @@
  */
 
 export type {
+  EmbeddingLineage,
   MemoryStore,
   StoredMemoryEntry,
   VectorSearchOptions,
   VectorSearchResult,
 } from './store.js';
 
-export { LanceDBStore } from './lancedbStore.js';
+export {
+  LanceDBStore,
+  computeEmbeddingSpaceId,
+  type EmbeddingSpaceConfig,
+} from './lancedbStore.js';

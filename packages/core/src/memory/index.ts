@@ -90,21 +90,33 @@ export {
 // =============================================================================
 
 export type {
+  EmbeddingLineage,
+  EmbeddingSpaceConfig,
   MemoryStore,
   StoredMemoryEntry,
   VectorSearchOptions,
   VectorSearchResult,
 } from './store/index.js';
 
-export { LanceDBStore } from './store/index.js';
+export { LanceDBStore, computeEmbeddingSpaceId } from './store/index.js';
 
 // =============================================================================
 // Embeddings exports
 // =============================================================================
 
-export type { EmbeddingClient, EmbeddingConfig } from './embeddings/index.js';
+export type {
+  EmbeddingClient,
+  EmbeddingConfig,
+  EmbeddingProvider,
+  FastEmbedConfig,
+  ProviderInfo,
+} from './embeddings/index.js';
 
-export { OllamaEmbeddings } from './embeddings/index.js';
+export {
+  EmbeddingProviderFactory,
+  FastEmbedEmbeddings,
+  OllamaEmbeddings,
+} from './embeddings/index.js';
 
 // =============================================================================
 // Relevance filter exports
