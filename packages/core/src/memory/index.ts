@@ -11,46 +11,113 @@
  * - Layer 1 (Static): Project context in system prompt
  * - Layer 2 (Dynamic): Per-turn ephemeral injection
  *
+ * ## Architecture
+ *
+ * ```
+ * Query → Embed → Vector Search (over-retrieve) → LLM Filter → MemoryHit[]
+ *                                                      ↓
+ *                                             formatMemoryHits()
+ *                                                      ↓
+ *                                             Inject into user message
+ * ```
+ *
  * @example
  * ```typescript
  * import {
- *   type MemoryCoreManager,
- *   type MemoryHit,
  *   LanceDBMemoryCoreManager,
+ *   LanceDBStore,
+ *   OllamaEmbeddings,
  *   formatMemoryHits,
  * } from './memory/index.js';
  *
- * // Create manager
- * const manager = new LanceDBMemoryCoreManager({
- *   dbPath: '/path/to/db',
- *   embedding: { provider: 'ollama', model: 'nomic-embed-text' },
+ * // Create components
+ * const store = new LanceDBStore('/path/to/memory.lance');
+ * const embeddings = new OllamaEmbeddings({
+ *   baseUrl: 'http://localhost:11434',
+ *   model: 'nomic-embed-text',
+ *   dimension: 768,
  * });
  *
- * // Retrieve relevant memories
- * const hits = await manager.retrieveRelevant(userMessage, { signal });
+ * // Create manager
+ * const manager = new LanceDBMemoryCoreManager({
+ *   store,
+ *   embeddings,
+ *   llmCall: async (prompt) => geminiClient.generateContent(prompt),
+ * });
  *
- * // Format for injection
+ * // Initialize and retrieve
+ * await manager.init();
+ * const hits = await manager.retrieveRelevant(userMessage, { signal });
  * const formatted = formatMemoryHits(hits);
  * ```
  */
 
+// =============================================================================
 // Type exports
+// =============================================================================
+
 export type {
   MemoryScope,
   MemoryHit,
   MemoryRetrieveOptions,
   MemorySearchOptions,
   MemoryConfig,
-  EmbeddingConfig,
+  EmbeddingConfig as MemoryEmbeddingConfig,
   MemoryCoreManager,
 } from './types.js';
 
-// Implementation exports
-export { LanceDBMemoryCoreManager } from './MemoryCoreManager.js';
+// =============================================================================
+// Manager exports
+// =============================================================================
 
+export {
+  LanceDBMemoryCoreManager,
+  type MemoryCoreManagerOptions,
+} from './MemoryCoreManager.js';
+
+// =============================================================================
 // Formatter exports
+// =============================================================================
+
 export {
   formatMemoryHits,
   sanitizeMemoryText,
   estimateTokens,
 } from './formatters.js';
+
+// =============================================================================
+// Store exports
+// =============================================================================
+
+export type {
+  MemoryStore,
+  StoredMemoryEntry,
+  VectorSearchOptions,
+  VectorSearchResult,
+} from './store/index.js';
+
+export { LanceDBStore } from './store/index.js';
+
+// =============================================================================
+// Embeddings exports
+// =============================================================================
+
+export type { EmbeddingClient, EmbeddingConfig } from './embeddings/index.js';
+
+export { OllamaEmbeddings } from './embeddings/index.js';
+
+// =============================================================================
+// Relevance filter exports
+// =============================================================================
+
+export type {
+  CandidateHit,
+  LLMFilterResult,
+  LLMFilterOptions,
+} from './relevance/index.js';
+
+export {
+  filterByRelevance,
+  buildFilterPrompt,
+  parseFilterResponse,
+} from './relevance/index.js';
